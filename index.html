@@ -556,7 +556,12 @@ body.light-mode .fg input, body.light-mode .fg textarea, body.light-mode .fg sel
     </div>
     <div class="fg"><label>Google Client ID</label><input id="c-cid" placeholder="xxxx.apps.googleusercontent.com"/></div>
     <div class="fg"><label>Google API Key</label><input type="password" id="c-key" placeholder="AIza..."/></div>
-    <div class="fg"><label>Calendar ID</label><input id="c-cal" placeholder="primary"/></div>
+    <div class="fg"><label>Calendar ID</label><input id="c-cal" placeholder="primary ou seu-calendar-id"/></div>
+    <div class="fg">
+      <button onclick="usePrimaryCalendar()" style="width:100%;background:rgba(105,117,101,.1);border:1px solid rgba(105,117,101,.2);color:var(--sage);padding:7px 12px;border-radius:9px;font-family:'Google Sans',sans-serif;font-size:12px;cursor:pointer">
+        ⚠️ Tentar Calendar ID 'primary' (padrão)
+      </button>
+    </div>
     <div class="fg"><label>OpenRouter API Key</label><input type="password" id="c-gem" placeholder="sk-or-..."/></div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal()">Cancelar</button>

@@ -403,10 +403,8 @@ async function createEvents(ev) {
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       let msg = err?.error?.message || 'HTTP ' + r.status;
-      if (r.status === 403 || msg.includes('writer')) {
-        msg += cfg.serviceAccount?.client_email
-          ? ' — Compartilhe o calendário com: ' + cfg.serviceAccount.client_email
-          : ' — Verifique permissões ou use "primary" como Calendar ID.';
+      if (r.status === 403 || msg.includes('writer') || msg.includes('insufficient authentication scopes')) {
+        msg += '<br><br><strong>Solução:</strong> Configure o Calendar ID como <code>primary</code> no menu Configurações.<br>Clique no botão ⚠️ "Tentar Calendar ID primary" para configurar automaticamente.';
       }
       throw new Error(msg);
     }
@@ -1551,6 +1549,11 @@ function closeModal() {
 
 function closeEventsModal() {
   document.getElementById('events-modal').classList.add('hidden');
+}
+
+function usePrimaryCalendar() {
+  document.getElementById('c-cal').value = 'primary';
+  toast('Calendar ID definido para "primary"', 'success');
 }
 
 function saveCfg() {
