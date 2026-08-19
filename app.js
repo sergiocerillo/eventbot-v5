@@ -2624,11 +2624,6 @@ async function crawlEventsPage() {
     return;
   }
   
-  if (!isUrl(url)) {
-    toast('URL inválida', 'error');
-    return;
-  }
-  
   const statusEl = document.getElementById('events-agent-status');
   const progressEl = document.getElementById('events-agent-progress');
   const barEl = document.getElementById('events-agent-bar');
@@ -2647,18 +2642,17 @@ async function crawlEventsPage() {
   resultsEl.style.display = 'none';
   
   try {
-    // Fetch page content
-    const html = await fetchPageHTML(url);
-    barEl.style.width = '40%';
-    labelEl.textContent = 'Analisando conteúdo com IA...';
+    barEl.style.width = '30%';
+    labelEl.textContent = 'Analisando página...';
     
-    // Extract events using AI
-    const events = await extractEventsWithAI(html, url);
+    // Extract events
+    const events = await extractEventsSimple(url);
+    
     barEl.style.width = '100%';
     labelEl.textContent = 'Concluído!';
     
     if (!events || events.length === 0) {
-      statusEl.textContent = '❌ Nenhum evento encontrado nesta página';
+      statusEl.textContent = '❌ Nenhum evento encontrado. Cole o HTML da página ou tente manual.';
       progressEl.style.display = 'none';
       crawlBtn.disabled = false;
       return;
@@ -2681,359 +2675,142 @@ async function crawlEventsPage() {
   }
 }
 
-async function fetchPageHTML(url) {
-  const proxies = [
-    u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
-    u => 'https://corsproxy.io/?' + encodeURIComponent(u),
-    u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u),
-  ];
+async function extractEventsSimple(url) {
+  // Aceita URL ou HTML diretamente
+  let html = url;
   
-  for (const makeProxy of proxies) {
+  // Se for URL, tenta buscar (mas não garante por causa do CORS)
+  if (url.startsWith('http')) {
     try {
-      const r = await fetch(makeProxy(url), {signal: AbortSignal.timeout(15000)});
-      if (!r.ok) continue;
-      let html = await r.text();
-      
-      // Handle allorigins JSON response
-      if (html.startsWith('{') && html.includes('"contents"')) {
-        const json = JSON.parse(html);
-        html = json.contents || json.data || '';
+      const proxy = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+      const r = await fetch(proxy, { signal: AbortSignal.timeout(10000) });
+      if (r.ok) {
+        html = await r.text();
       }
-      
-      return html.length > 500 ? html : null;
     } catch(e) {
-      console.log('[Agent] Proxy failed:', e.message);
+      console.log('Fetch failed, trying to parse URL as HTML', e);
     }
   }
   
-  throw new Error('Não foi possível acessar a página. Tente outro URL ou verifique se a página está acessível.');
-}
-
-async function extractEventsWithAI(html, sourceUrl) {
-  // Primeiro tenta extração heurística (sem IA)
-  const heuristicEvents = extractEventsHeuristic(html, sourceUrl);
-  
-  if (heuristicEvents.length > 0) {
-    console.log('[Agent] Encontrados', heuristicEvents.length, 'eventos via heurística');
-    return heuristicEvents;
-  }
-  
-  // Fallback para IA se configurada
-  if (!cfg.openRouterKey) {
-    throw new Error('Não foi possível extrair eventos automaticamente desta página. Configure a chave OpenRouter para usar IA ou tente outro site.');
-  }
-  
-  // Clean HTML
-  const div = document.createElement('div');
-  div.innerHTML = html;
-  
-  // Remove scripts, styles, etc
-  div.querySelectorAll('script,style,nav,footer,header,aside,iframe,noscript').forEach(el => el.remove());
-  
-  const text = div.innerText
-    .replace(/\s+/g, ' ')
-    .trim()
-    .substring(0, 8000);
-  
-  if (text.length < 100) {
-    throw new Error('Página com muito pouco conteúdo. Tente outra URL.');
-  }
-  
-  const prompt = `Analise o seguinte conteúdo de uma página de ingressos e extraia TODOS os eventos listados.
-Para cada evento, retorne um objeto JSON com:
-- title: nome do evento/artista
-- date: data no formato YYYY-MM-DD (se não tiver ano, use 2026)
-- venue: local do evento (nome da casa/teatro/arena)
-- ticketLink: link direto para compra (ou null)
-
-Retorne um array JSON com todos os eventos encontrados. Se não encontrar eventos, retorne array vazio [].
-IMPORTANTE: Responda APENAS com o array JSON, sem markdown ou explicações.
-
-Conteúdo da página:
-${text}
-
-Source URL: ${sourceUrl}`;
-
-  const response = await callOpenRouter(prompt);
-  
-  // Parse JSON from response
-  const jsonMatch = response.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) {
-    throw new Error('IA não conseguiu identificar eventos nesta página.');
-  }
-  
-  const events = JSON.parse(jsonMatch[0]);
-  
-  // Add source URL to each event
-  events.forEach(ev => {
-    ev.sourceUrl = sourceUrl;
-    ev.selected = false;
-  });
-  
-  return events;
-}
-
-function extractEventsHeuristic(html, sourceUrl) {
-  const events = [];
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
+  const events = [];
   
-  // Padrões de data em português
-  const datePatterns = [
-    /(\d{1,2})\s+de\s+(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)(?:\s+de\s+(\d{4}))?/gi,
-    /(\d{1,2})\/(0?[1-9]|1[0-2])(?:\/(\d{4}))?/g,
-    /(\d{4})-(\d{2})-(\d{2})/g
+  // Estratégia 1: JSON-LD (muitos sites usam)
+  const jsonLdScripts = doc.querySelectorAll('script[type="application/ld+json"]');
+  jsonLdScripts.forEach(script => {
+    try {
+      const data = JSON.parse(script.textContent);
+      if (data['@type'] === 'Event' || (Array.isArray(data) && data.some(d => d['@type'] === 'Event'))) {
+        const eventData = Array.isArray(data) ? data.filter(d => d['@type'] === 'Event') : [data];
+        eventData.forEach(ev => {
+          events.push({
+            title: ev.name || '',
+            date: ev.startDate ? ev.startDate.split('T')[0] : '2026-12-31',
+            venue: ev.location?.name || 'Local a definir',
+            ticketLink: ev.url || url,
+            sourceUrl: url,
+            selected: false
+          });
+        });
+      }
+    } catch(e) {}
+  });
+  
+  if (events.length > 0) return events;
+  
+  // Estratégia 2: Busca por elementos comuns
+  const selectors = [
+    'article', '.event', '.evento', '.card', 
+    '[class*="event"]', '[class*="evento"]',
+    '[itemtype*="Event"]', '.product', '[class*="show"]'
   ];
   
-  const monthMap = {
-    'janeiro': '01', 'fevereiro': '02', 'março': '03', 'abril': '04',
-    'maio': '05', 'junho': '06', 'julho': '07', 'agosto': '08',
-    'setembro': '09', 'outubro': '10', 'novembro': '11', 'dezembro': '12'
-  };
-  
-  // Estratégias de extração por site
-  if (sourceUrl.includes('pixelticket.com.br')) {
-    return extractPixelTicket(doc, sourceUrl);
-  } else if (sourceUrl.includes('101tickets.com.br')) {
-    return extract101Tickets(doc, sourceUrl);
-  } else if (sourceUrl.includes('fastix.com.br')) {
-    return extractFastix(doc, sourceUrl);
-  }
-  
-  // Extração genérica - procura por padrões comuns
-  const eventSelectors = [
-    '.event-card', '.evento', '.card-evento', '.event-item',
-    '[class*="event"]', '[class*="evento"]', 
-    'article', '.card', '[itemtype*="Event"]'
-  ];
-  
-  for (const selector of eventSelectors) {
-    const items = doc.querySelectorAll(selector);
+  for (const sel of selectors) {
+    const items = doc.querySelectorAll(sel);
     
-    items.forEach(item => {
+    items.forEach((item, idx) => {
+      if (idx > 50) return; // Limita a 50 eventos
+      
       const text = item.textContent || '';
       const html = item.innerHTML || '';
       
-      // Buscar título (geralmente em h1, h2, h3, ou com classes específicas)
-      let title = '';
-      const titleEl = item.querySelector('h1, h2, h3, h4, .title, .nome, .event-name, [class*="title"], [class*="nome"]');
-      if (titleEl) {
-        title = titleEl.textContent.trim();
-      } else {
-        // Pega primeira linha de texto significativa
-        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 5);
+      // Buscar título
+      let title = item.querySelector('h1, h2, h3, h4, .title, [class*="title"], [class*="name"], [class*="nome"]')?.textContent?.trim() || '';
+      
+      if (!title) {
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 5 && l.length < 100);
         title = lines[0] || '';
       }
       
-      if (!title || title.length < 3) return;
+      if (!title || title.length < 3 || title.length > 200) return;
       
       // Buscar data
-      let dateStr = null;
-      for (const pattern of datePatterns) {
-        const match = text.match(pattern);
-        if (match) {
-          dateStr = parsePortugueseDate(match[0], monthMap);
-          if (dateStr) break;
-        }
+      let dateStr = '2026-12-31';
+      const dateMatch = text.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})|(\d{4})-(\d{2})-(\d{2})|(\d{1,2})\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\w*\s+(\d{4})/i);
+      if (dateMatch) {
+        dateStr = normalizeDateString(dateMatch[0]);
       }
-      
-      if (!dateStr) return; // Precisa ter data
       
       // Buscar local
-      let venue = '';
-      const venueEl = item.querySelector('.venue, .local, .lugar, [class*="venue"], [class*="local"]');
-      if (venueEl) {
-        venue = venueEl.textContent.trim();
-      } else {
-        // Procura por palavras-chave de locais
-        const venueMatch = text.match(/(Teatro|Arena|Estádio|Ginásio|Centro de Convenções|Casa de Shows|Bar|Clube|Auditório|Parque|Memorial)\s+[A-ZÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝ][a-zàáâãäåæçèéêëìíîïðñòóôõöøùúûüýÿ\s]+/i);
-        if (venueMatch) {
-          venue = venueMatch[0].trim();
-        }
+      let venue = item.querySelector('[class*="local"], [class*="venue"], [class*="lugar"]')?.textContent?.trim() || '';
+      if (!venue) {
+        const venueMatch = text.match(/(Teatro|Arena|Estádio|Ginásio|Centro|Casa|Bar|Clube|Auditório|Parque|Memorial|Circo|Pavilhão)\s+[\wÀ-ÿ\s]+/i);
+        if (venueMatch) venue = venueMatch[0].trim().substring(0, 100);
       }
+      if (!venue) venue = 'Local a definir';
       
-      // Buscar link de ingresso
-      let ticketLink = sourceUrl;
-      const linkEl = item.querySelector('a[href*="ingresso"], a[href*="comprar"], a[href*="ticket"], a');
-      if (linkEl) {
-        const href = linkEl.getAttribute('href');
-        if (href) {
-          ticketLink = href.startsWith('http') ? href : new URL(href, sourceUrl).href;
-        }
-      }
+      // Link
+      const link = item.querySelector('a')?.href || url;
       
       events.push({
         title: title.substring(0, 200),
         date: dateStr,
-        venue: venue || 'Local a definir',
-        ticketLink: ticketLink,
-        sourceUrl: sourceUrl,
+        venue: venue,
+        ticketLink: link,
+        sourceUrl: url,
         selected: false
       });
     });
     
-    if (events.length > 0) break; // Se encontrou eventos, não precisa tentar outros seletores
+    if (events.length > 0) break;
   }
   
-  // Remove duplicatas (mesmo título e data)
+  // Remove duplicatas
   const unique = [];
   const seen = new Set();
-  for (const ev of events) {
+  events.forEach(ev => {
     const key = `${ev.title}|${ev.date}`;
-    if (!seen.has(key)) {
+    if (!seen.has(key) && ev.title.length > 2) {
       seen.add(key);
       unique.push(ev);
     }
-  }
-  
-  return unique;
-}
-
-function parsePortugueseDate(dateStr, monthMap) {
-  // Formato: "15 de janeiro de 2026"
-  const match1 = dateStr.match(/(\d{1,2})\s+de\s+(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)(?:\s+de\s+(\d{4}))?/i);
-  if (match1) {
-    const day = match1[1].padStart(2, '0');
-    const month = monthMap[match1[2].toLowerCase()];
-    const year = match1[3] || '2026';
-    return `${year}-${month}-${day}`;
-  }
-  
-  // Formato: "15/01/2026" ou "15/01"
-  const match2 = dateStr.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?/);
-  if (match2) {
-    const day = match2[1].padStart(2, '0');
-    const month = match2[2].padStart(2, '0');
-    const year = match2[3] || '2026';
-    return `${year}-${month}-${day}`;
-  }
-  
-  // Formato ISO: "2026-01-15"
-  const match3 = dateStr.match(/(\d{4})-(\d{2})-(\d{2})/);
-  if (match3) {
-    return dateStr;
-  }
-  
-  return null;
-}
-
-function extractPixelTicket(doc, sourceUrl) {
-  const events = [];
-  const items = doc.querySelectorAll('.event-card, article, .card, [class*="event"], [class*="produto"]');
-  
-  items.forEach(item => {
-    const titleEl = item.querySelector('h1, h2, h3, h4, .title, [class*="title"], [class*="nome"]');
-    const title = titleEl ? titleEl.textContent.trim() : '';
-    
-    if (!title || title.length < 3) return;
-    
-    const text = item.textContent;
-    const dateMatch = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})|(\d{1,2})\s+\w+\s+(\d{4})/);
-    
-    if (dateMatch) {
-      const venue = item.querySelector('[class*="local"], [class*="venue"]')?.textContent.trim() || 'Local a definir';
-      const link = item.querySelector('a')?.href || sourceUrl;
-      
-      events.push({
-        title,
-        date: parseBrazilianDate(dateMatch[0]),
-        venue,
-        ticketLink: link,
-        sourceUrl,
-        selected: false
-      });
-    }
   });
   
-  return events;
+  return unique.slice(0, 50);
 }
 
-function extract101Tickets(doc, sourceUrl) {
-  const events = [];
-  const items = doc.querySelectorAll('.evento, .event, article, .card');
-  
-  items.forEach(item => {
-    const title = item.querySelector('h1, h2, h3, [class*="title"]')?.textContent.trim() || '';
-    if (!title) return;
-    
-    const dateEl = item.querySelector('[class*="data"], [class*="date"], time');
-    if (dateEl) {
-      const dateStr = dateEl.getAttribute('datetime') || dateEl.textContent;
-      const venue = item.querySelector('[class*="local"]')?.textContent.trim() || 'Local a definir';
-      const link = item.querySelector('a')?.href || sourceUrl;
-      
-      events.push({
-        title,
-        date: parseBrazilianDate(dateStr),
-        venue,
-        ticketLink: link,
-        sourceUrl,
-        selected: false
-      });
-    }
-  });
-  
-  return events;
-}
-
-function extractFastix(doc, sourceUrl) {
-  const events = [];
-  const items = doc.querySelectorAll('[class*="event"], article, .card');
-  
-  items.forEach(item => {
-    const title = item.querySelector('h1, h2, h3, h4')?.textContent.trim() || '';
-    if (!title) return;
-    
-    const text = item.textContent;
-    const dateMatch = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-    
-    if (dateMatch) {
-      const venue = 'Local a definir';
-      const link = item.querySelector('a')?.href || sourceUrl;
-      
-      events.push({
-        title,
-        date: parseBrazilianDate(dateMatch[0]),
-        venue,
-        ticketLink: link,
-        sourceUrl,
-        selected: false
-      });
-    }
-  });
-  
-  return events;
-}
-
-function parseBrazilianDate(dateStr) {
-  // Tenta vários formatos
-  const formats = [
-    /(\d{4})-(\d{2})-(\d{2})/, // ISO
-    /(\d{1,2})\/(\d{1,2})\/(\d{4})/, // BR
-    /(\d{1,2})\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\w*\s+(\d{4})/i
-  ];
-  
-  for (const format of formats) {
-    const match = dateStr.match(format);
-    if (match) {
-      if (format === formats[0]) {
-        return match[0]; // ISO
-      } else if (format === formats[1]) {
-        const [_, day, month, year] = match;
-        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-      } else if (format === formats[2]) {
-        const monthMap = {
-          'jan': '01', 'fev': '02', 'mar': '03', 'abr': '04', 'mai': '05', 'jun': '06',
-          'jul': '07', 'ago': '08', 'set': '09', 'out': '10', 'nov': '11', 'dez': '12'
-        };
-        const [_, day, month, year] = match;
-        return `${year}-${monthMap[month.toLowerCase()]}-${day.padStart(2, '0')}`;
-      }
-    }
+function normalizeDateString(str) {
+  // DD/MM/YYYY ou DD-MM-YYYY
+  const m1 = str.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+  if (m1) {
+    return `${m1[3]}-${m1[2].padStart(2,'0')}-${m1[1].padStart(2,'0')}`;
   }
   
-  return '2026-12-31'; // Fallback
+  // YYYY-MM-DD (já ok)
+  const m2 = str.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (m2) return str;
+  
+  // DD mes YYYY
+  const months = {jan:'01',fev:'02',mar:'03',abr:'04',mai:'05',jun:'06',jul:'07',ago:'08',set:'09',out:'10',nov:'11',dez:'12'};
+  const m3 = str.match(/(\d{1,2})\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\w*\s+(\d{4})/i);
+  if (m3) {
+    return `${m3[3]}-${months[m3[2].toLowerCase().substring(0,3)]}-${m3[1].padStart(2,'0')}`;
+  }
+  
+  return '2026-12-31';
 }
+
 
 function renderEventsList(events, container) {
   container.innerHTML = events.map((ev, idx) => `
@@ -3144,11 +2921,6 @@ async function crawlMoviesPage() {
     return;
   }
   
-  if (!isUrl(url)) {
-    toast('URL inválida', 'error');
-    return;
-  }
-  
   const statusEl = document.getElementById('movies-agent-status');
   const progressEl = document.getElementById('movies-agent-progress');
   const barEl = document.getElementById('movies-agent-bar');
@@ -3159,7 +2931,7 @@ async function crawlMoviesPage() {
   const addBtn = document.getElementById('movies-agent-add-btn');
   
   statusEl.style.display = '';
-  statusEl.textContent = '🔍 Rastreando página...';
+  statusEl.textContent = '🎬 Rastreando filmes...';
   progressEl.style.display = '';
   barEl.style.width = '10%';
   labelEl.textContent = 'Baixando conteúdo...';
@@ -3167,13 +2939,12 @@ async function crawlMoviesPage() {
   resultsEl.style.display = 'none';
   
   try {
-    // Fetch page content
-    const html = await fetchPageHTML(url);
-    barEl.style.width = '40%';
-    labelEl.textContent = 'Analisando conteúdo com IA...';
+    barEl.style.width = '30%';
+    labelEl.textContent = 'Analisando página...';
     
-    // Extract movies using AI
-    const movies = await extractMoviesWithAI(html, url);
+    // Extract movies
+    const movies = await extractMoviesSimple(url);
+    
     barEl.style.width = '100%';
     labelEl.textContent = 'Concluído!';
     
@@ -3201,57 +2972,107 @@ async function crawlMoviesPage() {
   }
 }
 
-async function extractMoviesWithAI(html, sourceUrl) {
-  // Clean HTML
-  const div = document.createElement('div');
-  div.innerHTML = html;
+async function extractMoviesSimple(url) {
+  let html = url;
   
-  // Remove scripts, styles, etc
-  div.querySelectorAll('script,style,nav,footer,header,aside,iframe,noscript').forEach(el => el.remove());
-  
-  const text = div.innerText
-    .replace(/\s+/g, ' ')
-    .trim()
-    .substring(0, 8000);
-  
-  if (text.length < 100) {
-    throw new Error('Página com muito pouco conteúdo. Tente outra URL.');
+  // Se for URL, tenta buscar
+  if (url.startsWith('http')) {
+    try {
+      const proxy = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+      const r = await fetch(proxy, { signal: AbortSignal.timeout(10000) });
+      if (r.ok) {
+        html = await r.text();
+      }
+    } catch(e) {
+      console.log('Fetch failed', e);
+    }
   }
   
-  const prompt = `Analise o seguinte conteúdo de uma página de cinema e extraia TODOS os filmes em cartaz com suas sessões.
-Para cada filme, retorne um objeto JSON com:
-- title: nome do filme
-- date: data de uma das sessões no formato YYYY-MM-DD (use 2026 se não tiver ano)
-- time: horário da sessão (formato HH:MM)
-- venue: nome do cinema
-- ticketLink: link direto para compra (ou null)
-
-Se um filme tem várias sessões no mesmo dia, crie um objeto para cada horário.
-Retorne um array JSON com todos os filmes/sessões encontrados. Se não encontrar, retorne array vazio [].
-IMPORTANTE: Responda APENAS com o array JSON, sem markdown ou explicações.
-
-Conteúdo da página:
-${text}
-
-Source URL: ${sourceUrl}`;
-
-  const response = await callOpenRouter(prompt);
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const movies = [];
   
-  // Parse JSON from response
-  const jsonMatch = response.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) {
-    throw new Error('IA não conseguiu identificar filmes nesta página.');
-  }
-  
-  const movies = JSON.parse(jsonMatch[0]);
-  
-  // Add source URL to each movie
-  movies.forEach(mv => {
-    mv.sourceUrl = sourceUrl;
-    mv.selected = false;
+  // JSON-LD
+  const jsonLdScripts = doc.querySelectorAll('script[type="application/ld+json"]');
+  jsonLdScripts.forEach(script => {
+    try {
+      const data = JSON.parse(script.textContent);
+      const events = Array.isArray(data) ? data : [data];
+      events.forEach(ev => {
+        if (ev['@type'] === 'Movie' || ev['@type'] === 'ScreeningEvent') {
+          movies.push({
+            title: ev.name || '',
+            date: ev.startDate ? ev.startDate.split('T')[0] : '2026-12-31',
+            venue: 'Cinema',
+            ticketLink: ev.url || url,
+            sourceUrl: url,
+            selected: false
+          });
+        }
+      });
+    } catch(e) {}
   });
   
-  return movies;
+  if (movies.length > 0) return movies;
+  
+  // Busca por elementos
+  const selectors = [
+    '.movie', '.filme', '[class*="movie"]', '[class*="filme"]',
+    'article', '.card', '[class*="card"]'
+  ];
+  
+  for (const sel of selectors) {
+    const items = doc.querySelectorAll(sel);
+    
+    items.forEach((item, idx) => {
+      if (idx > 50) return;
+      
+      const text = item.textContent || '';
+      
+      // Título
+      let title = item.querySelector('h1, h2, h3, h4, .title, [class*="title"], [class*="name"]')?.textContent?.trim() || '';
+      
+      if (!title) {
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 3 && l.length < 100);
+        title = lines[0] || '';
+      }
+      
+      if (!title || title.length < 2) return;
+      
+      // Data (se tiver, senão usa default)
+      let dateStr = '2026-12-31';
+      const dateMatch = text.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})|(\d{4})-(\d{2})-(\d{2})/);
+      if (dateMatch) {
+        dateStr = normalizeDateString(dateMatch[0]);
+      }
+      
+      // Link
+      const link = item.querySelector('a')?.href || url;
+      
+      movies.push({
+        title: title.substring(0, 200),
+        date: dateStr,
+        venue: 'Cinema',
+        ticketLink: link,
+        sourceUrl: url,
+        selected: false
+      });
+    });
+    
+    if (movies.length > 0) break;
+  }
+  
+  // Remove duplicatas
+  const unique = [];
+  const seen = new Set();
+  movies.forEach(mv => {
+    if (!seen.has(mv.title) && mv.title.length > 2) {
+      seen.add(mv.title);
+      unique.push(mv);
+    }
+  });
+  
+  return unique.slice(0, 50);
 }
 
 function renderMoviesList(movies, container) {
