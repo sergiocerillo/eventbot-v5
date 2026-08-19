@@ -2683,16 +2683,23 @@ async function crawlEventsPage() {
 
 async function fetchPageHTML(url) {
   const proxies = [
+    u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
     u => 'https://corsproxy.io/?' + encodeURIComponent(u),
     u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u),
-    u => 'https://api.allorigins.win/get?url=' + encodeURIComponent(u),
   ];
   
   for (const makeProxy of proxies) {
     try {
-      const r = await fetch(makeProxy(url), {signal: AbortSignal.timeout(10000)});
+      const r = await fetch(makeProxy(url), {signal: AbortSignal.timeout(15000)});
       if (!r.ok) continue;
-      const html = await r.text();
+      let html = await r.text();
+      
+      // Handle allorigins JSON response
+      if (html.startsWith('{') && html.includes('"contents"')) {
+        const json = JSON.parse(html);
+        html = json.contents || json.data || '';
+      }
+      
       return html.length > 500 ? html : null;
     } catch(e) {
       console.log('[Agent] Proxy failed:', e.message);
@@ -2703,6 +2710,19 @@ async function fetchPageHTML(url) {
 }
 
 async function extractEventsWithAI(html, sourceUrl) {
+  // Primeiro tenta extração heurística (sem IA)
+  const heuristicEvents = extractEventsHeuristic(html, sourceUrl);
+  
+  if (heuristicEvents.length > 0) {
+    console.log('[Agent] Encontrados', heuristicEvents.length, 'eventos via heurística');
+    return heuristicEvents;
+  }
+  
+  // Fallback para IA se configurada
+  if (!cfg.openRouterKey) {
+    throw new Error('Não foi possível extrair eventos automaticamente desta página. Configure a chave OpenRouter para usar IA ou tente outro site.');
+  }
+  
   // Clean HTML
   const div = document.createElement('div');
   div.innerHTML = html;
@@ -2751,6 +2771,268 @@ Source URL: ${sourceUrl}`;
   });
   
   return events;
+}
+
+function extractEventsHeuristic(html, sourceUrl) {
+  const events = [];
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  
+  // Padrões de data em português
+  const datePatterns = [
+    /(\d{1,2})\s+de\s+(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)(?:\s+de\s+(\d{4}))?/gi,
+    /(\d{1,2})\/(0?[1-9]|1[0-2])(?:\/(\d{4}))?/g,
+    /(\d{4})-(\d{2})-(\d{2})/g
+  ];
+  
+  const monthMap = {
+    'janeiro': '01', 'fevereiro': '02', 'março': '03', 'abril': '04',
+    'maio': '05', 'junho': '06', 'julho': '07', 'agosto': '08',
+    'setembro': '09', 'outubro': '10', 'novembro': '11', 'dezembro': '12'
+  };
+  
+  // Estratégias de extração por site
+  if (sourceUrl.includes('pixelticket.com.br')) {
+    return extractPixelTicket(doc, sourceUrl);
+  } else if (sourceUrl.includes('101tickets.com.br')) {
+    return extract101Tickets(doc, sourceUrl);
+  } else if (sourceUrl.includes('fastix.com.br')) {
+    return extractFastix(doc, sourceUrl);
+  }
+  
+  // Extração genérica - procura por padrões comuns
+  const eventSelectors = [
+    '.event-card', '.evento', '.card-evento', '.event-item',
+    '[class*="event"]', '[class*="evento"]', 
+    'article', '.card', '[itemtype*="Event"]'
+  ];
+  
+  for (const selector of eventSelectors) {
+    const items = doc.querySelectorAll(selector);
+    
+    items.forEach(item => {
+      const text = item.textContent || '';
+      const html = item.innerHTML || '';
+      
+      // Buscar título (geralmente em h1, h2, h3, ou com classes específicas)
+      let title = '';
+      const titleEl = item.querySelector('h1, h2, h3, h4, .title, .nome, .event-name, [class*="title"], [class*="nome"]');
+      if (titleEl) {
+        title = titleEl.textContent.trim();
+      } else {
+        // Pega primeira linha de texto significativa
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 5);
+        title = lines[0] || '';
+      }
+      
+      if (!title || title.length < 3) return;
+      
+      // Buscar data
+      let dateStr = null;
+      for (const pattern of datePatterns) {
+        const match = text.match(pattern);
+        if (match) {
+          dateStr = parsePortugueseDate(match[0], monthMap);
+          if (dateStr) break;
+        }
+      }
+      
+      if (!dateStr) return; // Precisa ter data
+      
+      // Buscar local
+      let venue = '';
+      const venueEl = item.querySelector('.venue, .local, .lugar, [class*="venue"], [class*="local"]');
+      if (venueEl) {
+        venue = venueEl.textContent.trim();
+      } else {
+        // Procura por palavras-chave de locais
+        const venueMatch = text.match(/(Teatro|Arena|Estádio|Ginásio|Centro de Convenções|Casa de Shows|Bar|Clube|Auditório|Parque|Memorial)\s+[A-ZÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝ][a-zàáâãäåæçèéêëìíîïðñòóôõöøùúûüýÿ\s]+/i);
+        if (venueMatch) {
+          venue = venueMatch[0].trim();
+        }
+      }
+      
+      // Buscar link de ingresso
+      let ticketLink = sourceUrl;
+      const linkEl = item.querySelector('a[href*="ingresso"], a[href*="comprar"], a[href*="ticket"], a');
+      if (linkEl) {
+        const href = linkEl.getAttribute('href');
+        if (href) {
+          ticketLink = href.startsWith('http') ? href : new URL(href, sourceUrl).href;
+        }
+      }
+      
+      events.push({
+        title: title.substring(0, 200),
+        date: dateStr,
+        venue: venue || 'Local a definir',
+        ticketLink: ticketLink,
+        sourceUrl: sourceUrl,
+        selected: false
+      });
+    });
+    
+    if (events.length > 0) break; // Se encontrou eventos, não precisa tentar outros seletores
+  }
+  
+  // Remove duplicatas (mesmo título e data)
+  const unique = [];
+  const seen = new Set();
+  for (const ev of events) {
+    const key = `${ev.title}|${ev.date}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(ev);
+    }
+  }
+  
+  return unique;
+}
+
+function parsePortugueseDate(dateStr, monthMap) {
+  // Formato: "15 de janeiro de 2026"
+  const match1 = dateStr.match(/(\d{1,2})\s+de\s+(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)(?:\s+de\s+(\d{4}))?/i);
+  if (match1) {
+    const day = match1[1].padStart(2, '0');
+    const month = monthMap[match1[2].toLowerCase()];
+    const year = match1[3] || '2026';
+    return `${year}-${month}-${day}`;
+  }
+  
+  // Formato: "15/01/2026" ou "15/01"
+  const match2 = dateStr.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?/);
+  if (match2) {
+    const day = match2[1].padStart(2, '0');
+    const month = match2[2].padStart(2, '0');
+    const year = match2[3] || '2026';
+    return `${year}-${month}-${day}`;
+  }
+  
+  // Formato ISO: "2026-01-15"
+  const match3 = dateStr.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (match3) {
+    return dateStr;
+  }
+  
+  return null;
+}
+
+function extractPixelTicket(doc, sourceUrl) {
+  const events = [];
+  const items = doc.querySelectorAll('.event-card, article, .card, [class*="event"], [class*="produto"]');
+  
+  items.forEach(item => {
+    const titleEl = item.querySelector('h1, h2, h3, h4, .title, [class*="title"], [class*="nome"]');
+    const title = titleEl ? titleEl.textContent.trim() : '';
+    
+    if (!title || title.length < 3) return;
+    
+    const text = item.textContent;
+    const dateMatch = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})|(\d{1,2})\s+\w+\s+(\d{4})/);
+    
+    if (dateMatch) {
+      const venue = item.querySelector('[class*="local"], [class*="venue"]')?.textContent.trim() || 'Local a definir';
+      const link = item.querySelector('a')?.href || sourceUrl;
+      
+      events.push({
+        title,
+        date: parseBrazilianDate(dateMatch[0]),
+        venue,
+        ticketLink: link,
+        sourceUrl,
+        selected: false
+      });
+    }
+  });
+  
+  return events;
+}
+
+function extract101Tickets(doc, sourceUrl) {
+  const events = [];
+  const items = doc.querySelectorAll('.evento, .event, article, .card');
+  
+  items.forEach(item => {
+    const title = item.querySelector('h1, h2, h3, [class*="title"]')?.textContent.trim() || '';
+    if (!title) return;
+    
+    const dateEl = item.querySelector('[class*="data"], [class*="date"], time');
+    if (dateEl) {
+      const dateStr = dateEl.getAttribute('datetime') || dateEl.textContent;
+      const venue = item.querySelector('[class*="local"]')?.textContent.trim() || 'Local a definir';
+      const link = item.querySelector('a')?.href || sourceUrl;
+      
+      events.push({
+        title,
+        date: parseBrazilianDate(dateStr),
+        venue,
+        ticketLink: link,
+        sourceUrl,
+        selected: false
+      });
+    }
+  });
+  
+  return events;
+}
+
+function extractFastix(doc, sourceUrl) {
+  const events = [];
+  const items = doc.querySelectorAll('[class*="event"], article, .card');
+  
+  items.forEach(item => {
+    const title = item.querySelector('h1, h2, h3, h4')?.textContent.trim() || '';
+    if (!title) return;
+    
+    const text = item.textContent;
+    const dateMatch = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    
+    if (dateMatch) {
+      const venue = 'Local a definir';
+      const link = item.querySelector('a')?.href || sourceUrl;
+      
+      events.push({
+        title,
+        date: parseBrazilianDate(dateMatch[0]),
+        venue,
+        ticketLink: link,
+        sourceUrl,
+        selected: false
+      });
+    }
+  });
+  
+  return events;
+}
+
+function parseBrazilianDate(dateStr) {
+  // Tenta vários formatos
+  const formats = [
+    /(\d{4})-(\d{2})-(\d{2})/, // ISO
+    /(\d{1,2})\/(\d{1,2})\/(\d{4})/, // BR
+    /(\d{1,2})\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\w*\s+(\d{4})/i
+  ];
+  
+  for (const format of formats) {
+    const match = dateStr.match(format);
+    if (match) {
+      if (format === formats[0]) {
+        return match[0]; // ISO
+      } else if (format === formats[1]) {
+        const [_, day, month, year] = match;
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      } else if (format === formats[2]) {
+        const monthMap = {
+          'jan': '01', 'fev': '02', 'mar': '03', 'abr': '04', 'mai': '05', 'jun': '06',
+          'jul': '07', 'ago': '08', 'set': '09', 'out': '10', 'nov': '11', 'dez': '12'
+        };
+        const [_, day, month, year] = match;
+        return `${year}-${monthMap[month.toLowerCase()]}-${day.padStart(2, '0')}`;
+      }
+    }
+  }
+  
+  return '2026-12-31'; // Fallback
 }
 
 function renderEventsList(events, container) {
