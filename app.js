@@ -1278,16 +1278,41 @@ function afterLink() {
     '- <strong>Data:</strong> ' + fmtDate(d.date) + '<br>' +
     '- <strong>Horário:</strong> ' + d.times.join(', ') + '<br>' +
     '- <strong>Local:</strong> ' + esc(d.venue || '-'), [
-    {label: 'Confirmar', cb: () => {
-      showPreview(flow.data);
-    }},
-    {label: 'Editar horários', cb: () => {
-      showTimePicker(t => {
-        flow.data.times = t;
-        showPreview(flow.data);
-      });
+    {label: 'Colocar link de vendas?', cb: () => {
+      askTicketLink();
     }},
   ]);
+}
+
+function askTicketLink() {
+  botMsg('Quer adicionar link de ingressos? 🎟️', [
+    {label: 'Sim', cb: () => {
+      flow.state = 'ticket_link';
+      botMsg('Cole o link de vendas:');
+    }},
+    {label: 'Não', cb: () => {
+      showPreview(flow.data);
+    }},
+  ]);
+}
+
+function handleTicketLink(link) {
+  if (isUrl(link)) {
+    flow.data.ticketLink = link;
+    botMsg('Link salvo: <a href="' + esc(link) + '" target="_blank">' + esc(link) + '</a>', [
+      {label: 'Continuar', cb: () => showPreview(flow.data)}
+    ]);
+  } else {
+    botMsg('Link inválido. Tente novamente:', [
+      {label: 'Sim', cb: () => {
+        flow.state = 'ticket_link';
+        botMsg('Cole o link de vendas:');
+      }},
+      {label: 'Não', cb: () => {
+        showPreview(flow.data);
+      }},
+    ]);
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1758,16 +1783,57 @@ function renderVenueManager() {
   const list = document.getElementById('vm-list');
   
   if (!VENUES.length) {
-    list.innerHTML = '<div class="h-empty">Nenhum local.</div>';
+    list.innerHTML = '<div class="h-empty">Nenhum local cadastrado. Adicione abaixo:</div>';
     return;
   }
   
   list.innerHTML = VENUES.map((v, i) => 
     '<div class="vm-item">' +
     '<div style="flex:1"><div class="vm-name">' + esc(v.name) + '</div><div class="vm-addr">' + esc(v.addr) + '</div></div>' +
+    '<div style="display:flex;gap:4px">' +
+    '<button class="vm-edit" onclick="editVenue(' + i + ')" title="Editar">&#9998;</button>' +
     '<button class="vm-del" onclick="deleteVenue(' + i + ')" title="Remover">&#215;</button>' +
-    '</div>'
+    '</div></div>'
   ).join('');
+}
+
+function editVenue(i) {
+  const v = VENUES[i];
+  document.getElementById('vm-name').value = v.name;
+  document.getElementById('vm-addr').value = v.addr;
+  document.getElementById('vm-edit-index').value = i;
+  document.getElementById('vm-edit-btn').style.display = 'block';
+  document.getElementById('vm-add-btn').style.display = 'none';
+  document.getElementById('vm-cancel-btn').style.display = 'block';
+}
+
+function cancelVenueEdit() {
+  document.getElementById('vm-name').value = '';
+  document.getElementById('vm-addr').value = '';
+  document.getElementById('vm-edit-index').value = '';
+  document.getElementById('vm-edit-btn').style.display = 'none';
+  document.getElementById('vm-add-btn').style.display = 'block';
+  document.getElementById('vm-cancel-btn').style.display = 'none';
+}
+
+function updateVenue() {
+  const i = document.getElementById('vm-edit-index').value;
+  if (i === '') return;
+  
+  const name = document.getElementById('vm-name').value.trim();
+  const addr = document.getElementById('vm-addr').value.trim();
+  
+  if (!name) {
+    toast('Digite o nome do local', 'error');
+    return;
+  }
+  
+  VENUES[i] = {name, addr};
+  saveVenues();
+  renderVenueManager();
+  
+  cancelVenueEdit();
+  toast('Local atualizado', 'success');
 }
 
 function addVenue() {

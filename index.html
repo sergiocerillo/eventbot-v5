@@ -396,6 +396,8 @@ body.light-mode .fg input, body.light-mode .fg textarea, body.light-mode .fg sel
 .vm-addr { font-size: 11px; color: var(--sage); }
 .vm-del { background: rgba(210,70,70,.1); border: 1px solid rgba(210,70,70,.2); color: #c07070; width: 22px; height: 22px; border-radius: 5px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; transition: all .13s; flex-shrink: 0; }
 .vm-del:hover { background: rgba(210,70,70,.2); }
+.vm-edit { background: rgba(105,117,101,.1); border: 1px solid rgba(105,117,101,.2); color: var(--bl); width: 22px; height: 22px; border-radius: 5px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; transition: all .13s; flex-shrink: 0; }
+.vm-edit:hover { background: rgba(105,117,101,.2); }
 .ev-viewer-item { display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border-radius: 9px; border: 1px solid rgba(162,123,92,.1); background: rgba(162,123,92,.03); margin-bottom: 5px; }
 .ev-viewer-title { font-size: 13px; font-weight: 500; color: var(--sand); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ev-viewer-meta { font-size: 11px; color: var(--sage); margin-top: 3px; }
@@ -593,13 +595,15 @@ body.light-mode .fg input, body.light-mode .fg textarea, body.light-mode .fg sel
   </div>
 
   <div class="tab-panel" id="tab-venues">
-    <p style="font-size:13px;color:var(--sage);margin-bottom:14px">Locais disponiveis no seletor de cadastro.</p>
+    <p style="font-size:13px;color:var(--sage);margin-bottom:14px">Gerencie os locais onde os eventos ocorrem.</p>
     <div class="vm-list" id="vm-list"></div>
     <div class="fg"><label>Nome</label><input id="vm-name" placeholder="Ex: Cine Joia"/></div>
     <div class="fg"><label>Endereço</label><input id="vm-addr" placeholder="Rua, número - Bairro, São Paulo - SP"/></div>
+    <input type="hidden" id="vm-edit-index"/>
     <div class="modal-actions">
-      <button class="btn-ghost" onclick="closeModal()">Fechar</button>
-      <button class="btn-primary" onclick="addVenue()">Adicionar local</button>
+      <button class="btn-ghost" onclick="cancelVenueEdit()" id="vm-cancel-btn" style="display:none">Cancelar</button>
+      <button class="btn-primary" onclick="updateVenue()" id="vm-edit-btn" style="display:none">Salvar alterações</button>
+      <button class="btn-primary" onclick="addVenue()" id="vm-add-btn">Adicionar local</button>
     </div>
   </div>
 </div>
