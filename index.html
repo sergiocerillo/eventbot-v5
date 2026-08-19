@@ -450,9 +450,6 @@ body.light-mode .fg input, body.light-mode .fg textarea, body.light-mode .fg sel
 </head>
 <body>
 
-<!-- EVENTS PAGE -->
-<div id="events-page" class="hidden" style="grid-column:2/-1;grid-row:2;background:var(--black);overflow-y:auto;padding:20px"></div>
-
 <!-- EVENTS VIEWER MODAL -->
 <div class="modal-overlay hidden" id="events-modal">
 <div class="modal" style="width:580px;max-width:95vw">
@@ -624,18 +621,6 @@ body.light-mode .fg input, body.light-mode .fg textarea, body.light-mode .fg sel
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
         EventBot
       </button>
-      <button class="nav-tab" data-page="events" onclick="switchPageExtended('events')" style="margin-left:16px">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-        Eventos
-      </button>
-      <button class="nav-tab" data-page="dashboard" onclick="switchPageExtended('dashboard')" style="margin-left:16px">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
-        Dashboard
-      </button>
-      <button class="nav-tab" data-page="profile" onclick="switchPageExtended('profile')" style="margin-left:16px">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        Perfil
-      </button>
     </div>
 
     <!-- Right side -->
@@ -651,7 +636,6 @@ body.light-mode .fg input, body.light-mode .fg textarea, body.light-mode .fg sel
         <option value="forest">Floresta</option>
         <option value="sunset">Pôr do sol</option>
       </select>
-      <button class="btn-top" onclick="switchPage('events')" title="Ver eventos">📋</button>
       <button class="btn-top" onclick="openModal('api')">Config</button>
     </div>
   </header>
@@ -678,6 +662,14 @@ body.light-mode .fg input, body.light-mode .fg textarea, body.light-mode .fg sel
       <button class="sb-btn" onclick="openModal('events')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         Ver eventos cadastrados
+      </button>
+      <button class="sb-btn" onclick="openEventsAgent()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+        Rastrear Eventos
+      </button>
+      <button class="sb-btn" onclick="openMoviesAgent()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 3H3v18h18V3zM4 4h16v12H4V4zm1 1v10h14V5H5z"/><path d="M3 17v3h18v-3"/></svg>
+        Rastrear Filmes
       </button>
       <button class="sb-btn" onclick="qa('list')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
