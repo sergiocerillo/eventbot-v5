@@ -993,6 +993,31 @@ function showPreview(ev) {
 // ════════════════════════════════════════════════════════════════
 
 function welcome() {
+  // Alert if Google OAuth is not configured properly
+  if (!cfg.serviceAccount?.private_key && !cfg.clientId) {
+    botMsg('⚠️ <strong>Atenção:</strong> Você precisa configurar o Google OAuth para usar o sistema de login. <br>Clique em "Configurações" no menu lateral e configure seu Client ID.', [
+      {label: 'Configurar', cb: () => openModal('cfg')}
+    ]);
+  } else if (!cfg.serviceAccount?.private_key) {
+    // Try to restore session
+    tryRestoreSession().then(() => {
+      botMsg('Olá! 👋 Como quer cadastrar?', [
+        {label: 'Show por link', cb: startLink},
+        {label: 'Show manual', cb: startManual},
+        {label: 'Filme', cb: startMovie},
+        {label: 'Lote de links', cb: openBatchModal},
+      ]);
+    }).catch(() => {
+      botMsg('Olá! 👋 Como quer cadastrar? (Login não configurado)', [
+        {label: 'Show por link', cb: startLink},
+        {label: 'Show manual', cb: startManual},
+        {label: 'Configurar Google', cb: () => openModal('cfg')},
+        {label: 'Lote de links', cb: openBatchModal},
+      ]);
+    });
+    return;
+  }
+  
   if (cfg.serviceAccount?.private_key) {
     getSAToken().then(tok => {
       if (tok) {
