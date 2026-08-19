@@ -68,13 +68,6 @@ let currentPage = 'chat'; // 'chat', 'events', 'dashboard', 'profile'
 let selectedEventNum = null;
 let duplicateCache = {};
 
-// v4.0: Gamification & Theme System
-let userPoints = 0;
-let userBadges = [];
-let currentTheme = 'dark'; // 'dark', 'light', 'ocean', 'forest', 'sunset'
-let fontSize = 14;
-let sidebarCompact = false;
-
 // ── BOOT ──
 window.addEventListener('load', () => {
   loadConfig();
@@ -143,10 +136,10 @@ function setupKeyboardShortcuts() {
       window.print();
     }
     
-    // Ctrl+N or Cmd+N: new event
+    // Ctrl+N or Cmd+N: focus chat input
     if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
       e.preventDefault();
-      switchPage('chat');
+      document.getElementById('chat-input')?.focus();
     }
     
     // Ctrl+F or Cmd+F: focus search
@@ -1079,9 +1072,7 @@ function welcome() {
   
   try {
     initDarkMode();
-    initTheme();
-    initFontSize();
-    initv4();
+    // initTheme, initFontSize, initv4 removed for v5.0
   } catch(e) {
     console.log('Init error:', e.message);
   }
@@ -2593,246 +2584,7 @@ function welcomeImproved() {
 // v4.0 - NEW FEATURES: DASHBOARD, THEMES, GAMIFICATION, SOCIAL
 // ════════════════════════════════════════════════════════════════
 
-// ── DASHBOARD PAGE ──
-function renderDashboard() {
-  const page = document.getElementById('dashboard-page');
-  if (!page) return;
-  
-  // Calcula estatísticas
-  const totalEvents = evHist.length;
-  const venues = [...new Set(evHist.map(e => e.venue))];
-  const mostPopular = venues.length > 0 
-    ? venues.reduce((a, b) => 
-        evHist.filter(e => e.venue === a).length > evHist.filter(e => e.venue === b).length ? a : b
-      )
-    : 'N/A';
-  
-  const thisMonth = evHist.filter(e => {
-    const d = new Date(e.date);
-    const now = new Date();
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-  }).length;
-  
-  let html = '<div style="padding:30px;max-width:1200px;margin:0 auto">';
-  html += '<h1 style="font-size:28px;margin-bottom:30px;color:var(--sand)">📊 Dashboard</h1>';
-  
-  // Cards
-  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;margin-bottom:40px">';
-  
-  html += '<div style="background:var(--dark2);padding:20px;border-radius:12px;border-left:4px solid #6fcf7a">';
-  html += '<div style="font-size:12px;color:var(--sage);text-transform:uppercase;letter-spacing:1px">Total de Eventos</div>';
-  html += '<div style="font-size:32px;font-weight:700;color:#6fcf7a;margin-top:10px">' + totalEvents + '</div>';
-  html += '</div>';
-  
-  html += '<div style="background:var(--dark2);padding:20px;border-radius:12px;border-left:4px solid #F6BF26">';
-  html += '<div style="font-size:12px;color:var(--sage);text-transform:uppercase;letter-spacing:1px">Este Mês</div>';
-  html += '<div style="font-size:32px;font-weight:700;color:#F6BF26;margin-top:10px">' + thisMonth + '</div>';
-  html += '</div>';
-  
-  html += '<div style="background:var(--dark2);padding:20px;border-radius:12px;border-left:4px solid #C49A72">';
-  html += '<div style="font-size:12px;color:var(--sage);text-transform:uppercase;letter-spacing:1px">Locais Únicos</div>';
-  html += '<div style="font-size:32px;font-weight:700;color:#C49A72;margin-top:10px">' + venues.length + '</div>';
-  html += '</div>';
-  
-  html += '<div style="background:var(--dark2);padding:20px;border-radius:12px;border-left:4px solid #e57373">';
-  html += '<div style="font-size:12px;color:var(--sage);text-transform:uppercase;letter-spacing:1px">Pontos Acumulados</div>';
-  html += '<div style="font-size:32px;font-weight:700;color:#e57373;margin-top:10px">' + userPoints + '</div>';
-  html += '</div>';
-  
-  html += '</div>';
-  
-  // Local mais popular
-  html += '<div style="background:var(--dark2);padding:20px;border-radius:12px;margin-bottom:20px">';
-  html += '<h2 style="font-size:16px;margin-bottom:15px">📍 Local Mais Popular</h2>';
-  html += '<div style="font-size:18px;font-weight:600;color:var(--bl)">' + mostPopular + '</div>';
-  html += '<div style="font-size:12px;color:var(--sage);margin-top:5px">' + evHist.filter(e => e.venue === mostPopular).length + ' eventos</div>';
-  html += '</div>';
-  
-  // Badges
-  html += '<div style="background:var(--dark2);padding:20px;border-radius:12px">';
-  html += '<h2 style="font-size:16px;margin-bottom:15px">🏆 Badges Desbloqueadas</h2>';
-  html += '<div style="display:flex;gap:10px;flex-wrap:wrap">';
-  if (totalEvents > 0) html += '<span style="background:rgba(111,207,122,.2);color:#6fcf7a;padding:8px 12px;border-radius:8px">🎫 Primeiro Evento</span>';
-  if (totalEvents > 5) html += '<span style="background:rgba(111,207,122,.2);color:#6fcf7a;padding:8px 12px;border-radius:8px">⭐ 5+ Eventos</span>';
-  if (totalEvents > 10) html += '<span style="background:rgba(111,207,122,.2);color:#6fcf7a;padding:8px 12px;border-radius:8px">🔥 Frequentista</span>';
-  if (thisMonth > 3) html += '<span style="background:rgba(246,191,38,.2);color:#F6BF26;padding:8px 12px;border-radius:8px">📅 Mês Ativo</span>';
-  if (venues.length > 5) html += '<span style="background:rgba(196,154,114,.2);color:#C49A72;padding:8px 12px;border-radius:8px">🗺️ Explorador</span>';
-  html += '</div></div>';
-  
-  html += '</div>';
-  page.innerHTML = html;
-}
-
-// ── PROFILE PAGE (GAMIFICATION) ──
-function renderProfile() {
-  const page = document.getElementById('profile-page');
-  if (!page) return;
-  
-  let html = '<div style="padding:30px;max-width:800px;margin:0 auto">';
-  html += '<h1 style="font-size:28px;margin-bottom:30px">👤 Meu Perfil</h1>';
-  
-  // Pontos
-  html += '<div style="background:var(--dark2);padding:20px;border-radius:12px;margin-bottom:20px">';
-  html += '<div style="display:flex;justify-content:space-between;align-items:center">';
-  html += '<div><div style="font-size:12px;color:var(--sage)">PONTOS</div><div style="font-size:24px;font-weight:700;color:#F6BF26;margin-top:5px">' + userPoints + ' pts</div></div>';
-  html += '<div style="font-size:40px">⭐</div>';
-  html += '</div></div>';
-  
-  // Badges
-  html += '<div style="background:var(--dark2);padding:20px;border-radius:12px;margin-bottom:20px">';
-  html += '<h2 style="font-size:16px;margin-bottom:15px">🏆 Badges</h2>';
-  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">';
-  html += '<div style="background:rgba(111,207,122,.1);padding:15px;border-radius:8px;text-align:center">';
-  html += '<div style="font-size:24px">🎫</div><div style="font-size:11px;margin-top:8px;color:var(--sage)">Primeiro Evento</div></div>';
-  html += '<div style="background:rgba(111,207,122,.1);padding:15px;border-radius:8px;text-align:center">';
-  html += '<div style="font-size:24px">⭐</div><div style="font-size:11px;margin-top:8px;color:var(--sage)">5+ Eventos</div></div>';
-  html += '<div style="background:rgba(111,207,122,.1);padding:15px;border-radius:8px;text-align:center">';
-  html += '<div style="font-size:24px">🔥</div><div style="font-size:11px;margin-top:8px;color:var(--sage)">Frequentista</div></div>';
-  html += '</div></div>';
-  
-  // Preferências
-  html += '<div style="background:var(--dark2);padding:20px;border-radius:12px">';
-  html += '<h2 style="font-size:16px;margin-bottom:15px">⚙️ Preferências</h2>';
-  html += '<div style="margin-bottom:15px">';
-  html += '<label style="font-size:12px;color:var(--sage);display:block;margin-bottom:8px">Tamanho da Fonte</label>';
-  html += '<input type="range" min="12" max="18" value="' + fontSize + '" onchange="changeFontSize(this.value)" style="width:100%">';
-  html += '</div>';
-  html += '<div>';
-  html += '<label style="font-size:12px;color:var(--sage);display:block;margin-bottom:8px">Tema</label>';
-  html += '<select onchange="changeTheme(this.value)" style="background:rgba(10,10,8,.7);border:1px solid rgba(162,123,92,.16);color:var(--sand);padding:8px;border-radius:6px;width:100%">';
-  html += '<option value="dark">🌙 Escuro</option>';
-  html += '<option value="light">☀️ Claro</option>';
-  html += '<option value="ocean">🌊 Oceano</option>';
-  html += '<option value="forest">🌲 Floresta</option>';
-  html += '<option value="sunset">🌅 Pôr do Sol</option>';
-  html += '</select></div>';
-  html += '</div>';
-  
-  html += '</div>';
-  page.innerHTML = html;
-}
-
-// ── THEME SYSTEM ──
-function changeTheme(theme) {
-  currentTheme = theme;
-  localStorage.setItem('eb_theme', theme);
-  document.body.classList.remove('light-mode');
-  document.body.classList.remove('theme-ocean', 'theme-forest', 'theme-sunset');
-  if (theme === 'default') {
-    document.body.className = '';
-  } else {
-    document.body.className = 'theme-' + theme;
-  }
-  const themeName = {default: 'Padrão', ocean: 'Oceano', forest: 'Floresta', sunset: 'Pôr do sol'}[theme];
-  toast('Tema: ' + themeName, 'success');
-}
-
-function initTheme() {
-  const saved = localStorage.getItem('eb_theme') || 'default';
-  currentTheme = saved;
-  if (saved !== 'default') {
-    document.body.className = 'theme-' + saved;
-  }
-}
-
-// ── FONT SIZE ──
-function changeFontSize(size) {
-  fontSize = parseInt(size);
-  document.body.style.fontSize = fontSize + 'px';
-  localStorage.setItem('eb_fontSize', fontSize);
-  toast('Tamanho da fonte: ' + size + 'px', 'success');
-}
-
-function initFontSize() {
-  const saved = parseInt(localStorage.getItem('eb_fontSize') || '14');
-  fontSize = saved;
-  document.body.style.fontSize = fontSize + 'px';
-}
-
-// ── GAMIFICATION ──
-function addPoints(amount, reason) {
-  userPoints += amount;
-  localStorage.setItem('eb_points', userPoints);
-  toast('🎉 +' + amount + ' pontos: ' + reason, 'success');
-}
-
-function checkBadges() {
-  const totalEvents = evHist.length;
-  
-  if (totalEvents === 1 && !userBadges.includes('first-event')) {
-    userBadges.push('first-event');
-    toast('🏆 Badge desbloqueado: Primeiro Evento!', 'success');
-  }
-  
-  if (totalEvents === 5 && !userBadges.includes('five-events')) {
-    userBadges.push('five-events');
-    addPoints(25, 'Badge 5+ Eventos');
-  }
-  
-  if (totalEvents === 10 && !userBadges.includes('frequentist')) {
-    userBadges.push('frequentist');
-    addPoints(50, 'Badge Frequentista');
-  }
-}
-
-// ── SOCIAL SHARING ──
-function shareEvent(ev, platform) {
-  const text = '🎵 Vou para ' + ev.title + ' em ' + fmtDate(ev.date) + ' em ' + (ev.venue || 'um local incrível') + '!';
-  const hashtags = '#EventBot #MusicEvent #Festival';
-  
-  if (platform === 'twitter') {
-    window.open('https://twitter.com/intent/tweet?text=' + encodeURIComponent(text + ' ' + hashtags), '_blank');
-  } else if (platform === 'linkedin') {
-    window.open('https://www.linkedin.com/sharing/share-offsite/?url=eventbot.local', '_blank');
-  } else if (platform === 'whatsapp') {
-    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
-  }
-  
-  addPoints(5, 'Compartilhado em ' + platform);
-  toast('✓ Compartilhado!', 'success');
-}
-
-// ── EXTENDED PAGE SWITCHER ──
-function switchPageExtended(page) {
-  currentPage = page;
-  
-  const pages = {
-    'chat': document.querySelector('.chat-area'),
-    'events': document.getElementById('events-page'),
-    'dashboard': document.getElementById('dashboard-page'),
-    'profile': document.getElementById('profile-page')
-  };
-  
-  // Hide all
-  Object.values(pages).forEach(p => {
-    if (p) p.classList.add('hidden');
-  });
-  
-  // Show selected
-  if (pages[page]) pages[page].classList.remove('hidden');
-  
-  // Update nav
-  document.querySelectorAll('[data-page]').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.page === page);
-  });
-  
-  // Render if needed
-  if (page === 'dashboard') renderDashboard();
-  if (page === 'profile') renderProfile();
-}
-
-// ── LOAD v4.0 ──
+// ── MAIN INIT ──
 function initv4() {
-  initTheme();
-  initFontSize();
-  
-  const saved = localStorage.getItem('eb_points');
-  if (saved) userPoints = parseInt(saved);
-  
-  const badges = localStorage.getItem('eb_badges');
-  if (badges) userBadges = JSON.parse(badges);
+  // Basic initialization - gamification removed for v5.0
 }
-
-// Override old switchPage
-const originalSwitchPage = switchPage;
-switchPage = switchPageExtended;
