@@ -2900,154 +2900,93 @@ async function addSelectedEvents() {
 
 function openMoviesAgent() {
   document.getElementById('movies-agent-modal').classList.remove('hidden');
-  document.getElementById('movies-agent-url').value = '';
   document.getElementById('movies-agent-status').style.display = 'none';
   document.getElementById('movies-agent-progress').style.display = 'none';
   document.getElementById('movies-agent-results').style.display = 'none';
-  document.getElementById('movies-agent-crawl-btn').style.display = '';
   document.getElementById('movies-agent-add-btn').style.display = 'none';
   moviesAgentData = [];
+  
+  // Busca automaticamente ao abrir
+  crawlIngressoMovies();
 }
 
 function closeMoviesAgent() {
   document.getElementById('movies-agent-modal').classList.add('hidden');
 }
 
-async function crawlMoviesPage() {
-  const url = document.getElementById('movies-agent-url').value.trim();
-  
-  if (!url) {
-    toast('Cole uma URL para rastrear', 'error');
-    return;
-  }
-  
+async function crawlIngressoMovies() {
   const statusEl = document.getElementById('movies-agent-status');
   const progressEl = document.getElementById('movies-agent-progress');
   const barEl = document.getElementById('movies-agent-bar');
   const labelEl = document.getElementById('movies-agent-label');
   const resultsEl = document.getElementById('movies-agent-results');
   const listEl = document.getElementById('movies-agent-list');
-  const crawlBtn = document.getElementById('movies-agent-crawl-btn');
   const addBtn = document.getElementById('movies-agent-add-btn');
   
   statusEl.style.display = '';
-  statusEl.textContent = '🎬 Rastreando filmes...';
+  statusEl.textContent = '🎬 Buscando filmes em breve no Ingresso.com...';
   progressEl.style.display = '';
   barEl.style.width = '10%';
-  labelEl.textContent = 'Baixando conteúdo...';
-  crawlBtn.disabled = true;
+  labelEl.textContent = 'Baixando página...';
   resultsEl.style.display = 'none';
   
   try {
+    const url = 'https://www.ingresso.com/filmes/em-breve';
+    
     barEl.style.width = '30%';
-    labelEl.textContent = 'Analisando página...';
+    labelEl.textContent = 'Baixando conteúdo...';
     
-    // Extract movies
-    const movies = await extractMoviesSimple(url);
+    // Tenta buscar via proxy
+    const proxy = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+    const r = await fetch(proxy, { signal: AbortSignal.timeout(15000) });
     
-    barEl.style.width = '100%';
-    labelEl.textContent = 'Concluído!';
-    
-    if (!movies || movies.length === 0) {
-      statusEl.textContent = '❌ Nenhum filme encontrado nesta página';
-      progressEl.style.display = 'none';
-      crawlBtn.disabled = false;
-      return;
+    if (!r.ok) {
+      throw new Error('Não foi possível acessar a página. Erro: ' + r.status);
     }
     
-    moviesAgentData = movies;
-    renderMoviesList(movies, listEl);
+    const html = await r.text();
     
-    statusEl.style.display = 'none';
-    progressEl.style.display = 'none';
-    resultsEl.style.display = '';
-    crawlBtn.style.display = 'none';
-    addBtn.style.display = '';
+    barEl.style.width = '60%';
+    labelEl.textContent = 'Extraindo filmes...';
     
-  } catch(e) {
-    console.error(e);
-    statusEl.textContent = '❌ Erro: ' + e.message;
-    progressEl.style.display = 'none';
-    crawlBtn.disabled = false;
-  }
-}
-
-async function extractMoviesSimple(url) {
-  let html = url;
-  
-  // Se for URL, tenta buscar
-  if (url.startsWith('http')) {
-    try {
-      const proxy = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
-      const r = await fetch(proxy, { signal: AbortSignal.timeout(10000) });
-      if (r.ok) {
-        html = await r.text();
-      }
-    } catch(e) {
-      console.log('Fetch failed', e);
+    // Parse HTML
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    
+    // Busca todos os elementos com data-testid="event-item"
+    const eventItems = doc.querySelectorAll('[data-testid="event-item"]');
+    
+    console.log('[Movies] Encontrados', eventItems.length, 'elementos event-item');
+    
+    if (eventItems.length === 0) {
+      throw new Error('Nenhum filme encontrado na página. Verifique se o site mudou sua estrutura.');
     }
-  }
-  
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, 'text/html');
-  const movies = [];
-  
-  // JSON-LD
-  const jsonLdScripts = doc.querySelectorAll('script[type="application/ld+json"]');
-  jsonLdScripts.forEach(script => {
-    try {
-      const data = JSON.parse(script.textContent);
-      const events = Array.isArray(data) ? data : [data];
-      events.forEach(ev => {
-        if (ev['@type'] === 'Movie' || ev['@type'] === 'ScreeningEvent') {
-          movies.push({
-            title: ev.name || '',
-            date: ev.startDate ? ev.startDate.split('T')[0] : '2026-12-31',
-            venue: 'Cinema',
-            ticketLink: ev.url || url,
-            sourceUrl: url,
-            selected: false
-          });
-        }
-      });
-    } catch(e) {}
-  });
-  
-  if (movies.length > 0) return movies;
-  
-  // Busca por elementos
-  const selectors = [
-    '.movie', '.filme', '[class*="movie"]', '[class*="filme"]',
-    'article', '.card', '[class*="card"]'
-  ];
-  
-  for (const sel of selectors) {
-    const items = doc.querySelectorAll(sel);
     
-    items.forEach((item, idx) => {
-      if (idx > 50) return;
+    const movies = [];
+    
+    eventItems.forEach((item, idx) => {
+      // Extrai título (geralmente em h2, h3 ou link)
+      const titleEl = item.querySelector('h1, h2, h3, h4, a[title], [class*="title"], [class*="name"]');
+      const title = titleEl ? (titleEl.getAttribute('title') || titleEl.textContent.trim()) : '';
       
-      const text = item.textContent || '';
-      
-      // Título
-      let title = item.querySelector('h1, h2, h3, h4, .title, [class*="title"], [class*="name"]')?.textContent?.trim() || '';
-      
-      if (!title) {
-        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 3 && l.length < 100);
-        title = lines[0] || '';
+      if (!title || title.length < 2) {
+        console.log('[Movies] Item sem título:', idx);
+        return;
       }
       
-      if (!title || title.length < 2) return;
+      // Extrai data de lançamento (se houver)
+      const text = item.textContent;
+      let dateStr = '2026-12-31'; // Default
       
-      // Data (se tiver, senão usa default)
-      let dateStr = '2026-12-31';
-      const dateMatch = text.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})|(\d{4})-(\d{2})-(\d{2})/);
+      // Procura por padrões de data
+      const dateMatch = text.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})|(\d{1,2})\s+de\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\w*/i);
       if (dateMatch) {
         dateStr = normalizeDateString(dateMatch[0]);
       }
       
-      // Link
-      const link = item.querySelector('a')?.href || url;
+      // Link para o filme
+      const linkEl = item.querySelector('a');
+      const link = linkEl ? linkEl.href : url;
       
       movies.push({
         title: title.substring(0, 200),
@@ -3059,20 +2998,28 @@ async function extractMoviesSimple(url) {
       });
     });
     
-    if (movies.length > 0) break;
-  }
-  
-  // Remove duplicatas
-  const unique = [];
-  const seen = new Set();
-  movies.forEach(mv => {
-    if (!seen.has(mv.title) && mv.title.length > 2) {
-      seen.add(mv.title);
-      unique.push(mv);
+    barEl.style.width = '100%';
+    labelEl.textContent = 'Concluído!';
+    
+    if (movies.length === 0) {
+      statusEl.textContent = '❌ Nenhum filme válido encontrado';
+      progressEl.style.display = 'none';
+      return;
     }
-  });
-  
-  return unique.slice(0, 50);
+    
+    moviesAgentData = movies;
+    renderMoviesList(movies, listEl);
+    
+    statusEl.style.display = 'none';
+    progressEl.style.display = 'none';
+    resultsEl.style.display = '';
+    addBtn.style.display = '';
+    
+  } catch(e) {
+    console.error('[Movies] Erro:', e);
+    statusEl.textContent = '❌ Erro: ' + e.message;
+    progressEl.style.display = 'none';
+  }
 }
 
 function renderMoviesList(movies, container) {
@@ -3083,12 +3030,12 @@ function renderMoviesList(movies, container) {
         <div class="agent-item-title">${esc(mv.title)}</div>
         <div class="agent-item-meta">
           <span>📅 ${fmtDate(mv.date)}</span>
-          <span>🕐 ${mv.time || '—'}</span>
-          <span>🎬 ${esc(mv.venue || 'Cinema não informado')}</span>
-          ${mv.ticketLink ? '<span>🎫 Link disponível</span>' : ''}
+          <span>🎬 Cinema</span>
         </div>
       </div>
     </div>
+  `).join('');
+}
   `).join('');
 }
 
