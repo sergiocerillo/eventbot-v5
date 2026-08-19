@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>EventBot v4.0</title>
+<meta name="description" content="Sistema de gerenciamento de eventos musicais com integração ao Google Calendar e IA para extração de dados"/>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%231E201E'/><text y='23' x='5' font-size='20'>♪</text></svg>"/>
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@300;400;500;600;700&family=Google+Sans+Display:wght@300;400;500;700&family=Google+Sans+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+
+<!-- EventBot Extraction System v2.0 -->
+<script src="extraction.js"></script>
+<script src="extraction_config.js"></script>
+
+<!-- Supabase Client -->
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="db.js"></script>
+
+<style>
+/* ── TOKENS ── */
+:root {
+  --black:  #0F0E0E;
+  --dark:   #1A1C1A;
+  --dark2:  #222422;
+  --brown:  #A27B5C;
+  --sand:   #DCD7C9;
+  --sage:   #697565;
+  --bl:     #C49A72;
+  --sdk:    #B8B2A5;
+  --r:      14px;
+  --rsm:    8px;
+  
+  /* Light mode colors */
+  --light-bg: #F8F7F4;
+  --light-dark: #FFFFFF;
+  --light-dark2: #F2EFE9;
+  --light-text: #1A1C1A;
+  --light-muted: #8B9390;
+  --light-border: rgba(162,123,92,.2);
+}
+
+/* ── OCEAN THEME ── */
+body.theme-ocean {
+  --black:  #0A1628;
+  --dark:   #0F2440;
+  --dark2:  #1a3a52;
+  --brown:  #0E90CB;
+  --sand:   #B3D9F2;
+  --sage:   #5B9FBE;
+  --bl:     #40B0E0;
+  --sdk:    #6BA8D0;
+}
+
+/* ── FOREST THEME ── */
+body.theme-forest {
+  --black:  #0F1B0F;
+  --dark:   #1A2D1A;
+  --dark2:  #254125;
+  --brown:  #2D9D44;
+  --sand:   #C8E6C9;
+  --sage:   #66BB6A;
+  --bl:     #81C784;
+  --sdk:    #A5D6A7;
+}
+
+/* ── SUNSET THEME ── */
+body.theme-sunset {
+  --black:  #2A1810;
+  --dark:   #3E2723;
+  --dark2:  #5D4037;
+  --brown:  #FF6E40;
+  --sand:   #FFE0B2;
+  --sage:   #E8956F;
+  --bl:     #FF8A65;
+  --sdk:    #FFAB91;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  background: var(--black);
+  color: var(--sand);
+  font-family: 'Google Sans', sans-serif;
+  font-size: 14px;
+}
+body.light-mode {
+  background: var(--light-bg);
+  color: var(--light-text);
+}
+body::before {
+  content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 40% at 0% 0%, rgba(162,123,92,.06) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 60% at 100% 100%, rgba(105,117,101,.05) 0%, transparent 70%);
+}
+
+/* ── LAYOUT ── */
+.app {
+  position: relative; z-index: 1;
+  display: grid;
+  grid-template-columns: 280px 920px 1fr;
+  grid-template-rows: 62px 1fr;
+  height: 100vh;
+  max-width: 100%;
+  margin: 0 auto;
+}
+.app.list-view {
+  grid-template-columns: 280px 1fr;
+}
+
+/* ── TOPBAR ── */
+.topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: 200px 1fr 250px;
+  align-items: center;
+  padding: 0 24px;
+  border-bottom: 1px solid rgba(162,123,92,.15);
+  background: rgba(22,24,22,.97);
+  backdrop-filter: blur(20px);
+}
+body.light-mode .topbar {
+  background: rgba(255,255,255,.95);
+  border-bottom-color: var(--light-border);
+}
+.logo { display: flex; align-items: center; gap: 10px; }
+.logo-mark {
+  width: 30px; height: 30px;
+  background: linear-gradient(135deg, var(--brown), #7a5c3e);
+  border-radius: 8px; display: flex; align-items: center;
+  justify-content: center; font-size: 14px; flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(162,123,92,.25);
+}
+.logo-text {
+  font-family: 'Google Sans Display', sans-serif;
+  font-size: 16px; font-weight: 700; letter-spacing: -.4px; color: var(--sand);
+}
+.logo-text em { color: var(--brown); font-style: normal; }
+
+.nav-tabs {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; gap: 4px;
+}
+.nav-tabs .nav-tab {
+  height: 100%; padding: 0 20px;
+  background: transparent; border: none; border-bottom: 2px solid transparent;
+  color: var(--sage); font-family: 'Google Sans', sans-serif;
+  font-size: 13px; font-weight: 500; cursor: pointer;
+  transition: all .18s; display: flex; align-items: center; gap: 7px;
+}
+.nav-tabs .nav-tab:hover { color: var(--sand); }
+.nav-tabs .nav-tab.active { color: var(--sand); border-bottom-color: var(--brown); font-weight: 600; }
+body.light-mode .nav-tabs .nav-tab { color: var(--light-muted); }
+body.light-mode .nav-tabs .nav-tab:hover { color: var(--light-text); }
+body.light-mode .nav-tabs .nav-tab.active { color: var(--light-text); }
+
+.topbar-right {
+  display: flex; align-items: center; gap: 8px; justify-content: flex-end;
+}
+.status-pill {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(162,123,92,.07); border: 1px solid rgba(162,123,92,.15);
+  padding: 4px 11px; border-radius: 20px; font-size: 11.5px; color: var(--sage);
+}
+.sdot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--sage); flex-shrink: 0; animation: pulse 2.5s ease infinite;
+}
+.sdot.on { background: #6fcf7a; animation: none; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+.btn-top {
+  background: transparent; border: 1px solid rgba(162,123,92,.18);
+  color: var(--sdk); padding: 5px 13px; border-radius: 20px;
+  font-family: 'Google Sans', sans-serif; font-size: 12px; cursor: pointer; transition: all .18s;
+}
+.btn-top:hover { background: rgba(162,123,92,.1); color: var(--sand); border-color: rgba(162,123,92,.35); }
+
+/* ── SIDEBAR ── */
+.sidebar {
+  grid-column: 1;
+  grid-row: 2;
+  background: var(--dark);
+  border-right: 1px solid rgba(162,123,92,.1);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+body.light-mode .sidebar {
+  background: var(--light-dark);
+  border-right-color: var(--light-border);
+}
+.sidebar::-webkit-scrollbar { width: 3px; }
+.sidebar::-webkit-scrollbar-thumb { background: rgba(162,123,92,.18); border-radius: 2px; }
+.sb-top { padding: 16px 14px 12px; border-bottom: 1px solid rgba(162,123,92,.08); flex-shrink: 0; }
+.sb-actions { display: flex; flex-direction: column; gap: 3px; }
+.sb-btn {
+  width: 100%; background: transparent; border: none; color: var(--sdk);
+  padding: 8px 10px; border-radius: 9px;
+  font-family: 'Google Sans', sans-serif; font-size: 12.5px;
+  cursor: pointer; transition: all .16s; text-align: left;
+  display: flex; align-items: center; gap: 9px;
+}
+.sb-btn:hover { background: rgba(162,123,92,.1); color: var(--sand); }
+.sb-btn svg { width: 14px; height: 14px; flex-shrink: 0; opacity: .65; }
+.sb-btn:hover svg { opacity: 1; }
+.sb-div { height: 1px; background: rgba(162,123,92,.08); margin: 8px 14px; flex-shrink: 0; }
+.sb-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; padding: 12px 14px 8px; flex-shrink: 0; }
+.stat-card {
+  background: rgba(162,123,92,.07); border: 1px solid rgba(162,123,92,.12);
+  border-radius: 10px; padding: 10px 12px;
+}
+.stat-card .n { font-family: 'Google Sans Display', sans-serif; font-size: 24px; font-weight: 700; color: var(--bl); line-height: 1; }
+.stat-card .l { font-size: 10px; color: var(--sage); margin-top: 3px; }
+.sb-hist-label { font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--sage); padding: 4px 16px 7px; flex-shrink: 0; }
+.sb-hist { flex: 1; overflow-y: auto; padding: 0 10px 12px; }
+.sb-hist::-webkit-scrollbar { width: 3px; }
+.sb-hist::-webkit-scrollbar-thumb { background: rgba(162,123,92,.15); border-radius: 2px; }
+.h-item { padding: 8px 10px; border-radius: 9px; border: 1px solid transparent; cursor: pointer; transition: all .15s; margin-bottom: 3px; }
+.h-item:hover { background: rgba(162,123,92,.08); border-color: rgba(162,123,92,.14); }
+.h-item .ht { font-size: 12.5px; font-weight: 500; color: var(--sand); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.h-item .hm { font-size: 11px; color: var(--sage); margin-top: 2px; }
+.h-item .hst { display: inline-block; font-size: 10px; margin-top: 4px; padding: 1px 7px; border-radius: 8px; }
+.h-empty { font-size: 12px; color: var(--sage); font-style: italic; padding: 4px 8px; }
+
+/* ── CHAT ── */
+.chat-area {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex; flex-direction: column; overflow: hidden; background: var(--black);
+}
+body.light-mode .chat-area {
+  background: var(--light-bg);
+}
+.chat-area.hidden {
+  display: none !important;
+}
+.messages {
+  flex: 1; overflow-y: auto; padding: 24px 28px 16px;
+  display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth;
+}
+.messages::-webkit-scrollbar { width: 4px; }
+.messages::-webkit-scrollbar-thumb { background: rgba(162,123,92,.15); border-radius: 2px; }
+
+/* ── PLAYLIST PANEL ── */
+.playlist-panel {
+  grid-column: 2;
+  grid-row: 2;
+  display: none; flex-direction: column; overflow: hidden; background: var(--black);
+}
+.playlist-panel.visible { display: flex; }
+.hidden { display: none !important; }
+
+/* ── MESSAGES ── */
+.msg { display: flex; gap: 10px; animation: msgIn .28s cubic-bezier(.34,1.56,.64,1); }
+.msg.user { flex-direction: row-reverse; }
+@keyframes msgIn { from{opacity:0;transform:translateY(8px) scale(.97)} to{opacity:1;transform:none} }
+.av { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; margin-top: 2px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; overflow: hidden; }
+.msg.bot .av { background: linear-gradient(135deg, var(--brown), #7a5c3e); color: var(--sand); }
+.msg.user .av { background: rgba(105,117,101,.25); color: var(--sand); }
+.msg-wrap { display: flex; flex-direction: column; max-width: 64%; }
+.msg.user .msg-wrap { align-items: flex-end; }
+.bubble { padding: 11px 15px; border-radius: var(--r); line-height: 1.65; font-size: 15px; word-break: break-word; }
+.msg.bot .bubble { background: var(--dark2); border: 1px solid rgba(162,123,92,.15); color: var(--sand); border-radius: 3px var(--r) var(--r) var(--r); }
+.msg.user .bubble { background: linear-gradient(135deg, rgba(162,123,92,.2), rgba(105,117,101,.13)); border: 1px solid rgba(162,123,92,.25); color: var(--sand); border-radius: var(--r) 3px var(--r) var(--r); }
+body.light-mode .msg.bot .bubble { background: var(--light-dark2); border-color: var(--light-border); color: var(--light-text); }
+body.light-mode .msg.user .bubble { background: rgba(162,123,92,.1); border-color: rgba(162,123,92,.2); color: var(--light-text); }
+.bubble strong { color: var(--sand); font-weight: 600; }
+body.light-mode .bubble strong { color: var(--light-text); }
+.bubble code { font-family: 'Google Sans Mono', monospace; background: rgba(162,123,92,.12); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; color: var(--bl); }
+.msg-time { font-size: 10.5px; color: var(--sage); margin-top: 4px; opacity: .5; }
+.msg.user .msg-time { text-align: right; }
+.typing { display: flex; gap: 10px; align-items: flex-start; }
+.typing-dots { background: var(--dark2); border: 1px solid rgba(162,123,92,.15); border-radius: 3px var(--r) var(--r) var(--r); padding: 12px 15px; display: flex; gap: 5px; align-items: center; }
+.typing-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--brown); animation: bop 1.3s ease infinite; }
+.typing-dots span:nth-child(2){animation-delay:.22s} .typing-dots span:nth-child(3){animation-delay:.44s}
+@keyframes bop{0%,80%,100%{transform:translateY(0);opacity:.3}40%{transform:translateY(-6px);opacity:1}}
+.qrs { display: flex; flex-wrap: wrap; gap: 6px; padding: 3px 0 2px 40px; animation: msgIn .2s ease; }
+.qr { background: rgba(162,123,92,.07); border: 1px solid rgba(162,123,92,.22); color: var(--sand); padding: 6px 15px; border-radius: 20px; font-family: 'Google Sans', sans-serif; font-size: 13px; cursor: pointer; transition: all .16s; white-space: nowrap; }
+.qr:hover { background: rgba(162,123,92,.18); border-color: var(--brown); transform: translateY(-1px); }
+
+/* ── EVENT CARD ── */
+.ev-card { background: rgba(10,10,8,.98); border: 1px solid rgba(162,123,92,.22); border-radius: var(--r); margin-top: 10px; overflow: hidden; }
+.ev-card-head { padding: 14px 16px 12px; border-bottom: 1px solid rgba(162,123,92,.1); position: relative; }
+.ev-card-head::before { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%; background: linear-gradient(to bottom, var(--brown), var(--sage)); }
+.ev-title { font-family: 'Google Sans Display', sans-serif; font-size: 16px; font-weight: 600; color: var(--sand); line-height: 1.3; padding-left: 8px; margin-bottom: 8px; }
+.ev-date-badge { background: rgba(162,123,92,.14); border: 1px solid rgba(162,123,92,.28); color: var(--bl); font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 12px; display: inline-block; }
+.ev-card-body { padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 9px; }
+.ev-row { display: flex; align-items: flex-start; gap: 9px; font-size: 13.5px; }
+.ev-row-lbl { font-size: 11px; font-weight: 600; color: var(--sage); text-transform: uppercase; letter-spacing: .5px; min-width: 68px; margin-top: 2px; flex-shrink: 0; }
+.ev-row-val { color: var(--sand); line-height: 1.5; }
+.slots-wrap { display: flex; flex-wrap: wrap; gap: 5px; }
+.slot-chip { background: rgba(162,123,92,.1); border: 1px solid rgba(162,123,92,.2); color: var(--sdk); padding: 2px 9px; border-radius: 9px; font-size: 12px; font-family: 'Google Sans Mono', monospace; }
+.ev-card-foot { padding: 11px 14px; border-top: 1px solid rgba(162,123,92,.1); display: flex; gap: 7px; }
+
+/* ── BUTTONS ── */
+.btn-primary { flex: 1; background: linear-gradient(135deg, var(--brown), #8B6544); border: none; color: var(--sand); padding: 10px 16px; border-radius: var(--rsm); font-family: 'Google Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .18s; display: flex; align-items: center; justify-content: center; gap: 5px; }
+.btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.btn-primary:disabled { opacity: .4; cursor: default; transform: none; filter: none; }
+.btn-ghost { background: rgba(255,255,255,.03); border: 1px solid rgba(162,123,92,.16); color: var(--sage); padding: 10px 13px; border-radius: var(--rsm); font-family: 'Google Sans', sans-serif; font-size: 13px; cursor: pointer; transition: all .18s; }
+.btn-ghost:hover { background: rgba(255,255,255,.07); color: var(--sand); }
+.btn-ghost:disabled { opacity: .35; cursor: default; }
+.btn-edit { background: rgba(162,123,92,.08); border: 1px solid rgba(162,123,92,.2); color: var(--bl); padding: 10px 13px; border-radius: var(--rsm); font-family: 'Google Sans', sans-serif; font-size: 13px; cursor: pointer; transition: all .18s; }
+.btn-edit:hover { background: rgba(162,123,92,.16); color: var(--sand); }
+.btn-sm { background: rgba(162,123,92,.07); border: 1px solid rgba(162,123,92,.15); color: var(--sage); padding: 5px 12px; border-radius: 14px; font-family: 'Google Sans', sans-serif; font-size: 12px; cursor: pointer; transition: all .13s; }
+.btn-sm:hover { background: rgba(162,123,92,.16); color: var(--sand); }
+.btn-sm.pri { background: linear-gradient(135deg, var(--brown), #8B6544); border: none; color: var(--sand); font-weight: 600; margin-left: auto; }
+.btn-sm.pri:hover { filter: brightness(1.1); }
+
+/* ── CALENDAR WIDGET ── */
+.cal-wrap { background: rgba(10,10,8,.98); border: 1px solid rgba(162,123,92,.18); border-radius: var(--r); padding: 13px; margin-top: 10px; width: 256px; }
+.cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.cal-nav { background: rgba(162,123,92,.08); border: 1px solid rgba(162,123,92,.16); color: var(--sand); width: 26px; height: 26px; border-radius: 50%; font-size: 13px; cursor: pointer; transition: all .14s; display: flex; align-items: center; justify-content: center; }
+.cal-nav:hover { background: rgba(162,123,92,.2); }
+.cal-month { font-size: 12.5px; font-weight: 600; color: var(--sand); }
+.cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; }
+.cal-dn { font-size: 10px; font-weight: 600; text-align: center; color: var(--sage); padding: 2px 0; }
+.cal-d { font-size: 11.5px; text-align: center; padding: 5px 0; border-radius: 6px; cursor: pointer; color: var(--sdk); transition: all .12s; }
+.cal-d:hover:not(.empty):not(.past) { background: rgba(162,123,92,.18); color: var(--sand); }
+.cal-d.today { color: var(--bl); font-weight: 700; }
+.cal-d.selected { background: var(--brown); color: var(--sand); font-weight: 700; }
+.cal-d.empty, .cal-d.past { cursor: default; opacity: .2; }
+.cal-confirm { margin-top: 10px; width: 100%; background: linear-gradient(135deg, var(--brown), #8B6544); border: none; color: var(--sand); padding: 7px; border-radius: var(--rsm); font-family: 'Google Sans', sans-serif; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: all .18s; }
+.cal-confirm:hover { filter: brightness(1.1); }
+.cal-confirm:disabled { opacity: .35; cursor: default; }
+
+/* ── TIME PICKER ── */
+.time-picker { margin-top: 10px; }
+.slot-toggle { background: rgba(162,123,92,.07); border: 1px solid rgba(162,123,92,.18); color: var(--sdk); padding: 5px 12px; border-radius: 16px; font-family: 'Google Sans Mono', monospace; font-size: 12px; cursor: pointer; transition: all .13s; }
+.slot-toggle.active { background: rgba(162,123,92,.24); border-color: var(--brown); color: var(--sand); }
+.time-acts { display: flex; gap: 5px; margin-top: 9px; align-items: center; }
+
+/* ── VENUE PICKER ── */
+.venue-search { width: 100%; background: rgba(10,10,8,.7); border: 1px solid rgba(162,123,92,.16); border-radius: var(--rsm); color: var(--sand); padding: 7px 11px; font-family: 'Google Sans', sans-serif; font-size: 13px; outline: none; margin-bottom: 7px; transition: border-color .18s; }
+.venue-search:focus { border-color: rgba(162,123,92,.44); }
+.venue-list { max-height: 270px; overflow-y: auto; }
+.venue-list::-webkit-scrollbar { width: 3px; }
+.venue-list::-webkit-scrollbar-thumb { background: rgba(162,123,92,.15); border-radius: 2px; }
+.venue-item { padding: 8px 11px; border-radius: 9px; border: 1px solid transparent; cursor: pointer; transition: all .13s; margin-bottom: 4px; }
+.venue-item:hover { background: rgba(162,123,92,.09); border-color: rgba(162,123,92,.2); }
+.venue-item .vn { font-size: 13px; font-weight: 500; color: var(--sand); }
+.venue-item .va { font-size: 11px; color: var(--sage); margin-top: 2px; }
+
+/* ── STATUS PICKER ── */
+.status-picker { display: flex; gap: 8px; margin-top: 10px; }
+.status-opt { flex: 1; padding: 12px 8px; border-radius: 11px; border: 2px solid transparent; cursor: pointer; transition: all .18s; text-align: center; font-family: 'Google Sans', sans-serif; font-size: 13px; font-weight: 500; color: var(--sdk); }
+.status-opt .s-dot { width: 18px; height: 18px; border-radius: 50%; margin: 0 auto 7px; }
+.status-opt.going  { background: rgba(111,207,122,.07);  border-color: rgba(111,207,122,.15); }
+.status-opt.maybe  { background: rgba(246,191,38,.07);   border-color: rgba(246,191,38,.15); }
+.status-opt.nogo   { background: rgba(229,115,115,.07);  border-color: rgba(229,115,115,.15); }
+.status-opt:hover { transform: translateY(-2px); }
+.status-opt.going:hover  { background: rgba(111,207,122,.15); border-color: rgba(111,207,122,.4);  color: var(--sand); }
+.status-opt.maybe:hover  { background: rgba(246,191,38,.15);  border-color: rgba(246,191,38,.4);   color: var(--sand); }
+.status-opt.nogo:hover   { background: rgba(229,115,115,.15); border-color: rgba(229,115,115,.4);  color: var(--sand); }
+.status-opt.selected.going { background: rgba(111,207,122,.2);  border-color: #6fcf7a; color: #6fcf7a; font-weight: 700; }
+.status-opt.selected.maybe { background: rgba(246,191,38,.2);   border-color: #F6BF26; color: #E5B020; font-weight: 700; }
+.status-opt.selected.nogo  { background: rgba(229,115,115,.2);  border-color: #e57373; color: #e57373; font-weight: 700; }
+
+/* ── INPUT BAR ── */
+.input-bar { padding: 12px 20px 16px; border-top: 1px solid rgba(162,123,92,.1); background: rgba(10,10,8,.8); backdrop-filter: blur(20px); flex-shrink: 0; }
+.input-wrap { display: flex; gap: 7px; align-items: flex-end; background: var(--dark2); border: 1px solid rgba(162,123,92,.18); border-radius: 14px; padding: 7px 7px 7px 14px; transition: border-color .2s; }
+.input-wrap:focus-within { border-color: rgba(162,123,92,.44); }
+#chat-input { flex: 1; background: transparent; border: none; outline: none; color: var(--sand); font-family: 'Google Sans', sans-serif; font-size: 15px; resize: none; max-height: 96px; min-height: 22px; line-height: 1.55; padding: 2px 0; }
+#chat-input::placeholder { color: rgba(105,117,101,.55); }
+.send-btn { width: 34px; height: 34px; border-radius: 9px; background: linear-gradient(135deg, var(--brown), #8B6544); border: none; color: var(--sand); cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all .18s; }
+.send-btn:hover { filter: brightness(1.12); transform: scale(1.05); }
+.send-btn:disabled { opacity: .35; cursor: default; transform: none; }
+.input-hint { font-size: 11px; color: var(--sage); text-align: center; margin-top: 6px; opacity: .45; }
+
+/* ── MODALS ── */
+.modal-overlay { position: fixed; inset: 0; background: rgba(8,8,6,.88); backdrop-filter: blur(12px); z-index: 100; display: flex; align-items: center; justify-content: center; }
+.modal-overlay.hidden { display: none; }
+.modal { background: var(--dark); border: 1px solid rgba(162,123,92,.2); border-radius: 18px; padding: 26px; width: 480px; max-width: 93vw; max-height: 86vh; overflow-y: auto; animation: mIn .26s cubic-bezier(.34,1.56,.64,1); position: relative; }
+@keyframes mIn { from{opacity:0;transform:scale(.93) translateY(14px)} to{opacity:1;transform:none} }
+body.light-mode .modal { background: var(--light-dark); border-color: rgba(162,123,92,.3); }
+.modal-close { position: absolute; top: 16px; right: 16px; background: rgba(255,255,255,.05); border: 1px solid rgba(162,123,92,.14); color: var(--sage); width: 26px; height: 26px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; line-height: 1; transition: all .15s; }
+.modal-close:hover { background: rgba(255,255,255,.1); color: var(--sand); }
+.modal h2 { font-family: 'Google Sans Display', sans-serif; font-size: 17px; font-weight: 700; color: var(--sand); margin-bottom: 16px; padding-right: 30px; }
+.modal-tabs { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 18px; background: rgba(10,10,8,.6); padding: 3px; border-radius: 11px; }
+.modal-tab { flex: 1; padding: 7px 6px; border: none; background: transparent; color: var(--sage); font-family: 'Google Sans', sans-serif; font-size: 12px; cursor: pointer; border-radius: 8px; transition: all .18s; white-space: nowrap; }
+.modal-tab.active { background: rgba(162,123,92,.18); color: var(--sand); font-weight: 600; }
+.tab-panel { display: none; } .tab-panel.active { display: block; }
+.fg { margin-bottom: 14px; }
+.fg label { display: block; font-size: 10px; font-weight: 600; color: var(--sage); letter-spacing: .7px; text-transform: uppercase; margin-bottom: 5px; }
+.fg input, .fg textarea, .fg select { width: 100%; background: rgba(10,10,8,.7); border: 1px solid rgba(162,123,92,.16); border-radius: 9px; color: var(--sand); padding: 8px 12px; font-family: 'Google Sans', sans-serif; font-size: 13px; outline: none; transition: border-color .18s; }
+body.light-mode .fg input, body.light-mode .fg textarea, body.light-mode .fg select { background: white; border-color: rgba(162,123,92,.25); color: var(--light-text); }
+.fg textarea { resize: vertical; min-height: 110px; line-height: 1.5; font-family: 'Google Sans Mono', monospace; font-size: 11px; }
+.fg input:focus, .fg textarea:focus, .fg select:focus { border-color: rgba(162,123,92,.44); }
+.fg input::placeholder, .fg textarea::placeholder { color: rgba(105,117,101,.45); }
+.info-box { background: rgba(162,123,92,.05); border: 1px solid rgba(162,123,92,.12); border-radius: 9px; padding: 11px 13px; font-size: 12px; color: var(--sage); line-height: 1.75; margin-bottom: 16px; }
+.info-box a { color: var(--bl); text-decoration: none; } .info-box a:hover { text-decoration: underline; }
+.info-box ol { padding-left: 15px; margin-top: 5px; }
+.modal-actions { display: flex; gap: 7px; margin-top: 20px; flex-wrap: wrap; }
+.sa-active { font-size: 12.5px; padding: 10px 12px; border-radius: 9px; background: rgba(111,207,122,.08); border: 1px solid rgba(111,207,122,.26); color: #6fcf7a; margin-bottom: 14px; display: none; line-height: 1.6; }
+.vm-list { max-height: 210px; overflow-y: auto; margin-bottom: 12px; }
+.vm-item { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 9px; border: 1px solid rgba(162,123,92,.1); background: rgba(10,10,8,.4); margin-bottom: 4px; }
+.vm-name { font-size: 12.5px; color: var(--sand); flex: 1; font-weight: 500; }
+.vm-addr { font-size: 11px; color: var(--sage); }
+.vm-del { background: rgba(210,70,70,.1); border: 1px solid rgba(210,70,70,.2); color: #c07070; width: 22px; height: 22px; border-radius: 5px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; transition: all .13s; flex-shrink: 0; }
+.vm-del:hover { background: rgba(210,70,70,.2); }
+.ev-viewer-item { display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border-radius: 9px; border: 1px solid rgba(162,123,92,.1); background: rgba(162,123,92,.03); margin-bottom: 5px; }
+.ev-viewer-title { font-size: 13px; font-weight: 500; color: var(--sand); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ev-viewer-meta { font-size: 11px; color: var(--sage); margin-top: 3px; }
+.ev-viewer-actions { display: flex; gap: 5px; flex-shrink: 0; align-items: center; }
+.ev-viewer-btn { font-size: 11px; padding: 3px 9px; border-radius: 9px; cursor: pointer; transition: all .14s; white-space: nowrap; border: 1px solid; }
+.ev-viewer-btn.ticket { color: var(--bl); border-color: rgba(162,123,92,.22); background: transparent; text-decoration: none; }
+.ev-viewer-btn.ticket:hover { background: rgba(162,123,92,.1); }
+.ev-viewer-btn.remove { color: #c07070; border-color: rgba(210,70,70,.2); background: rgba(210,70,70,.06); }
+.ev-viewer-btn.remove:hover { background: rgba(210,70,70,.14); }
+
+/* ── TOAST ── */
+.toast { position: fixed; bottom: 22px; right: 22px; background: var(--dark); border: 1px solid rgba(162,123,92,.25); border-radius: var(--r); padding: 11px 16px; font-size: 13px; color: var(--sand); z-index: 200; display: flex; align-items: center; gap: 7px; animation: slideUp .24s cubic-bezier(.34,1.56,.64,1); max-width: 300px; box-shadow: 0 8px 32px rgba(0,0,0,.4); }
+.toast.success { border-color: rgba(111,207,122,.42); }
+.toast.error   { border-color: rgba(210,70,70,.42); }
+.toast.hidden  { display: none; }
+@keyframes slideUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:none} }
+
+/* ── 4K SCALING ── */
+@media (min-width: 2560px) {
+  :root { --r: 16px; --rsm: 10px; }
+  .app { max-width: 2400px; grid-template-columns: 340px 1fr; grid-template-rows: 72px 1fr; }
+  .topbar { grid-template-columns: 240px 1fr 240px; }
+  .logo-mark { width: 36px; height: 36px; font-size: 17px; }
+  .logo-text { font-size: 19px; }
+  .nav-tab { font-size: 15px; padding: 0 24px; }
+  .sb-btn { font-size: 14px; padding: 10px 12px; }
+  .bubble { font-size: 17px; padding: 13px 17px; }
+  .qr { font-size: 15px; padding: 8px 18px; }
+  #chat-input { font-size: 17px; }
+  .ev-title { font-size: 18px; }
+  .modal { padding: 32px; border-radius: 22px; }
+  .modal h2 { font-size: 20px; }
+  .toast { font-size: 14px; }
+}
+@media (min-width: 3840px) {
+  :root { --r: 18px; --rsm: 12px; }
+  .app { max-width: 3400px; grid-template-columns: 400px 1fr; grid-template-rows: 84px 1fr; }
+  .topbar { grid-template-columns: 280px 1fr 280px; }
+  .bubble { font-size: 20px; }
+  #chat-input { font-size: 20px; }
+  .ev-title { font-size: 22px; }
+  .qr { font-size: 17px; }
+}
+
+@media(max-width:700px) { .app{grid-template-columns:1fr} .sidebar{display:none} }
+</style>
+</head>
+<body>
+
+<!-- EVENTS PAGE -->
+<div id="events-page" class="hidden" style="grid-column:2/-1;grid-row:2;background:var(--black);overflow-y:auto;padding:20px"></div>
+
+<!-- DASHBOARD PAGE (v4.0) -->
+<div id="dashboard-page" class="hidden" style="grid-column:2/-1;grid-row:2;background:var(--black);overflow-y:auto"></div>
+
+<!-- PROFILE PAGE (v4.0) -->
+<div id="profile-page" class="hidden" style="grid-column:2/-1;grid-row:2;background:var(--black);overflow-y:auto"></div>
+<!-- EVENTS VIEWER MODAL -->
+<div class="modal-overlay hidden" id="events-modal">
+<div class="modal" style="width:580px;max-width:95vw">
+  <button class="modal-close" onclick="closeEventsModal()" title="Fechar (Esc)">&times;</button>
+  <h2>Eventos do Calendário</h2>
+  <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+    <input type="month" id="ev-month" style="background:rgba(10,10,8,.7);border:1px solid rgba(162,123,92,.16);border-radius:10px;color:var(--sand);padding:7px 11px;font-family:'Google Sans',sans-serif;font-size:13px;outline:none"/>
+    <button class="btn-sm" onclick="loadCalendarEvents()">Carregar</button>
+    <span id="ev-loading" style="font-size:12px;color:var(--sage);display:none">Carregando...</span>
+  </div>
+  <div id="ev-list" style="max-height:440px;overflow-y:auto;display:flex;flex-direction:column">
+    <div style="font-size:13px;color:var(--sage);text-align:center;padding:24px">Selecione um mês e clique em Carregar</div>
+  </div>
+</div>
+</div>
+
+<!-- EDIT EVENT MODAL -->
+<div class="modal-overlay hidden" id="edit-modal">
+<div class="modal" style="width:500px">
+  <button class="modal-close" onclick="closeEditModal()" title="Fechar (Esc)">&times;</button>
+  <h2>Editar Evento</h2>
+  <div class="fg"><label>Título</label><input id="edit-title" placeholder="Nome do evento"/></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div class="fg"><label>Data</label><input id="edit-date" type="date"/></div>
+    <div class="fg"><label>Horário de início</label>
+      <select id="edit-time">
+        <option value="11:00">11:00</option>
+        <option value="12:00">12:00</option>
+        <option value="13:00">13:00</option>
+        <option value="14:00">14:00</option>
+        <option value="15:00">15:00</option>
+        <option value="16:00">16:00</option>
+        <option value="17:00">17:00</option>
+        <option value="18:00">18:00</option>
+        <option value="19:00">19:00</option>
+        <option value="20:00">20:00</option>
+        <option value="20:30">20:30</option>
+        <option value="21:00">21:00</option>
+      </select>
+    </div>
+  </div>
+  <div class="fg"><label>Local</label>
+    <select id="edit-location">
+      <option value="">-- Selecione o local --</option>
+    </select>
+  </div>
+  <div class="fg"><label>Link de ingressos</label><input id="edit-ticket" placeholder="https://..."/></div>
+  <div id="edit-error" style="font-size:12.5px;color:#c07070;margin-top:-8px;margin-bottom:12px;display:none"></div>
+  <div class="modal-actions">
+    <button class="btn-ghost" onclick="closeEditModal()">Cancelar</button>
+    <button class="btn-primary" onclick="saveEditEvent()">Salvar alterações</button>
+  </div>
+</div>
+</div>
+
+<!-- BATCH LINKS MODAL -->
+<div class="modal-overlay hidden" id="batch-modal">
+<div class="modal" style="width:520px">
+  <button class="modal-close" onclick="closeBatchModal()" title="Fechar (Esc)">&times;</button>
+  <h2>Cadastro em lote por links</h2>
+  <p style="font-size:13px;color:var(--sage);margin-bottom:16px;line-height:1.6">
+    Cole um link por linha. O EventBot vai extrair os dados de cada um automaticamente com IA e mostrar um preview para confirmar.
+  </p>
+  <div class="fg">
+    <label>Links (um por linha)</label>
+    <textarea id="batch-links" style="min-height:160px;font-family:'Google Sans Mono',monospace;font-size:12.5px" placeholder="https://sympla.com.br/evento-1&#10;https://fastix.com.br/events/evento-2&#10;https://eventim.com.br/evento-3"></textarea>
+  </div>
+  <div id="batch-status" style="font-size:12.5px;color:var(--sage);margin-bottom:12px;display:none"></div>
+  <div id="batch-progress" style="display:none;margin-bottom:14px">
+    <div style="background:rgba(162,123,92,.1);border-radius:8px;height:6px;overflow:hidden">
+      <div id="batch-bar" style="height:100%;background:linear-gradient(90deg,var(--brown),#c49a72);border-radius:8px;width:0%;transition:width .4s ease"></div>
+    </div>
+    <div id="batch-label" style="font-size:11.5px;color:var(--sage);margin-top:6px;text-align:center"></div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-ghost" onclick="closeBatchModal()">Cancelar</button>
+    <button class="btn-primary" id="batch-start-btn" onclick="startBatchLinks()">Extrair e revisar</button>
+  </div>
+</div>
+</div>
+
+<!-- CONFIG MODAL -->
+<div class="modal-overlay hidden" id="cfg-modal">
+<div class="modal">
+  <button class="modal-close" onclick="closeModal()" title="Fechar (Esc)">&times;</button>
+  <h2>Configurações</h2>
+  <div class="modal-tabs">
+    <button class="modal-tab active" onclick="switchTab('api')">APIs</button>
+    <button class="modal-tab" onclick="switchTab('sa')">Sem Login</button>
+    <button class="modal-tab" onclick="switchTab('venues')">Locais</button>
+  </div>
+
+  <div class="tab-panel active" id="tab-api">
+    <div class="info-box">
+      <ol>
+        <li><a href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a> &rarr; APIs &rarr; Credenciais &rarr; seu OAuth Client ID &rarr; <strong>Origens JavaScript autorizadas</strong> &rarr; adicionar <strong>ambas</strong>:<br>
+          <code>http://localhost:8080</code> e <code>http://127.0.0.1:8080</code></li>
+        <li><a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a> &rarr; Create Key (gratis)</li>
+        <li>Google Calendar &rarr; Configuracoes &rarr; Integrar agenda &rarr; copiar Calendar ID</li>
+      </ol>
+    </div>
+    <div class="fg"><label>Google Client ID</label><input id="c-cid" placeholder="xxxx.apps.googleusercontent.com"/></div>
+    <div class="fg"><label>Google API Key</label><input type="password" id="c-key" placeholder="AIza..."/></div>
+    <div class="fg"><label>Calendar ID</label><input id="c-cal" placeholder="primary"/></div>
+    <div class="fg"><label>OpenRouter API Key</label><input type="password" id="c-gem" placeholder="sk-or-..."/></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="saveCfg()">Salvar</button>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tab-sa">
+    <div class="info-box">
+      <strong>Login permanente &mdash; sem popup</strong><br><br>
+      <ol style="margin-top:6px">
+        <li><a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank">IAM &rarr; Service Accounts</a> &rarr; Create Service Account</li>
+        <li>Nome qualquer (ex: eventbot) &rarr; Create &rarr; Done</li>
+        <li>Clique na conta &rarr; aba Keys &rarr; Add Key &rarr; JSON &rarr; baixe</li>
+        <li>Google Calendar: compartilhe com o email <code><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="f48c8c8cb48c8c8cda9d9599da93879186829d97919597979b819a80da979b99">[email&#160;protected]</a></code> &rarr; permissao <em>Fazer alteracoes nos eventos</em></li>
+        <li>Cole o JSON abaixo e clique em Ativar</li>
+      </ol>
+    </div>
+    <div class="sa-active" id="sa-status"></div>
+    <div class="fg">
+      <label>JSON da Service Account</label>
+      <textarea id="sa-json" placeholder='{"type":"service_account","project_id":"...","private_key":"-----BEGIN RSA PRIVATE KEY-----\n...","client_email":"eventbot@projeto.iam.gserviceaccount.com",...}'></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn-ghost" id="sa-clear-btn" style="display:none;color:#c07070;border-color:rgba(210,70,70,.26)" onclick="clearSA()">Remover</button>
+      <button class="btn-primary" onclick="saveSA()">Ativar</button>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tab-venues">
+    <p style="font-size:13px;color:var(--sage);margin-bottom:14px">Locais disponiveis no seletor de cadastro.</p>
+    <div class="vm-list" id="vm-list"></div>
+    <div class="fg"><label>Nome</label><input id="vm-name" placeholder="Ex: Cine Joia"/></div>
+    <div class="fg"><label>Endereço</label><input id="vm-addr" placeholder="Rua, número - Bairro, São Paulo - SP"/></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal()">Fechar</button>
+      <button class="btn-primary" onclick="addVenue()">Adicionar local</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="toast hidden" id="toast"><span id="t-msg"></span></div>
+
+<!-- APP -->
+<div class="app">
+  <header class="topbar">
+    <!-- Logo -->
+    <div class="logo">
+      <div class="logo-mark">&#9835;</div>
+      <span class="logo-text">Event<em>Bot</em></span>
+    </div>
+
+    <!-- Center nav tabs -->
+    <div class="nav-tabs">
+      <button class="nav-tab active" data-page="chat" onclick="switchPageExtended('chat')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        EventBot
+      </button>
+      <button class="nav-tab" data-page="events" onclick="switchPageExtended('events')" style="margin-left:16px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        Eventos
+      </button>
+      <button class="nav-tab" data-page="dashboard" onclick="switchPageExtended('dashboard')" style="margin-left:16px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+        Dashboard
+      </button>
+      <button class="nav-tab" data-page="profile" onclick="switchPageExtended('profile')" style="margin-left:16px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        Perfil
+      </button>
+    </div>
+
+    <!-- Right side -->
+    <div class="topbar-right">
+      <div class="status-pill" id="status-pill">
+        <div class="sdot" id="sdot"></div>
+        <span id="slabel">Desconectado</span>
+      </div>
+      <button class="btn-top" id="theme-toggle" onclick="toggleDarkMode()" title="Alternar tema">☀️</button>
+      <select class="btn-top" id="theme-selector" style="background:transparent;border:1px solid rgba(162,123,92,.18);cursor:pointer;appearance:none;padding:5px 10px" title="Escolher tema" onchange="changeTheme(this.value)">
+        <option value="default">Padrão</option>
+        <option value="ocean">Oceano</option>
+        <option value="forest">Floresta</option>
+        <option value="sunset">Pôr do sol</option>
+      </select>
+      <button class="btn-top" onclick="switchPage('events')" title="Ver eventos">📋</button>
+      <button class="btn-top" onclick="openModal('api')">Config</button>
+    </div>
+  </header>
+
+  <aside class="sidebar">
+    <div class="sb-top">
+      <div class="sb-actions">
+        <button class="sb-btn" onclick="qa('link')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+          Evento por link
+        </button>
+        <button class="sb-btn" onclick="qa('manual')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Cadastro manual
+        </button>
+        <button class="sb-btn" onclick="openBatchModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+          Lote de links
+        </button>
+      </div>
+    </div>
+    <div class="sb-div"></div>
+    <div class="sb-actions" style="padding:4px 6px">
+      <button class="sb-btn" onclick="openModal('events')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        Ver eventos cadastrados
+      </button>
+      <button class="sb-btn" onclick="qa('list')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        Ver locais
+      </button>
+      <button class="sb-btn" onclick="openModal('venues')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
+        Editar locais
+      </button>
+      <button class="sb-btn" onclick="openModal('sa')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        Login permanente
+      </button>
+      <button class="sb-btn" onclick="openModal('api')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        Configuracoes
+      </button>
+    </div>
+    <div class="sb-div"></div>
+    <div class="sb-stats">
+      <div class="stat-card"><div class="n" id="stat-count">0</div><div class="l">cadastrados</div></div>
+      <div class="stat-card"><div class="n" id="stat-venues">0</div><div class="l">locais</div></div>
+    </div>
+    <div class="sb-hist-label">Historico</div>
+    <div class="sb-hist" id="hist-list">
+      <div class="h-empty">Nenhum evento ainda.</div>
+    </div>
+  </aside>
+
+  <main class="chat-area">
+    <div class="messages" id="msgs"></div>
+    <div class="input-bar">
+      <div class="input-wrap">
+        <textarea id="chat-input" rows="1" placeholder="Digite ou cole um link de evento..."></textarea>
+        <button class="send-btn" onclick="send()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+      <div class="input-hint">Enter para enviar &middot; Shift+Enter nova linha</div>
+    </div>
+  </main>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
