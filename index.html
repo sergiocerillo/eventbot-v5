@@ -411,6 +411,19 @@ body.light-mode .fg input, body.light-mode .fg textarea, body.light-mode .fg sel
 .ev-viewer-btn.remove { color: #c07070; border-color: rgba(210,70,70,.2); background: rgba(210,70,70,.06); }
 .ev-viewer-btn.remove:hover { background: rgba(210,70,70,.14); }
 
+/* ── AGENT SELECTION ITEMS ── */
+.agent-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 9px; border: 1px solid rgba(162,123,92,.1); background: rgba(162,123,92,.03); margin-bottom: 6px; transition: all .15s; }
+.agent-item:hover { background: rgba(162,123,92,.08); border-color: rgba(162,123,92,.2); }
+.agent-item-check { width: 18px; height: 18px; border: 2px solid rgba(162,123,92,.3); border-radius: 4px; cursor: pointer; flex-shrink: 0; margin-top: 2px; transition: all .15s; }
+.agent-item-check:hover { border-color: var(--brown); }
+.agent-item-check.selected { background: var(--brown); border-color: var(--brown); position: relative; }
+.agent-item-check.selected::after { content: '✓'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--sand); font-size: 12px; font-weight: bold; }
+.agent-item-content { flex: 1; min-width: 0; }
+.agent-item-title { font-size: 13px; font-weight: 500; color: var(--sand); margin-bottom: 4px; line-height: 1.3; }
+.agent-item-meta { font-size: 11px; color: var(--sage); display: flex; flex-wrap: wrap; gap: 8px; }
+.agent-item-meta span { display: flex; align-items: center; gap: 4px; }
+.agent-empty { font-size: 13px; color: var(--sage); text-align: center; padding: 40px 20px; font-style: italic; }
+
 /* ── TOAST ── */
 .toast { position: fixed; bottom: 22px; right: 22px; background: var(--dark); border: 1px solid rgba(162,123,92,.25); border-radius: var(--r); padding: 11px 16px; font-size: 13px; color: var(--sand); z-index: 200; display: flex; align-items: center; gap: 7px; animation: slideUp .24s cubic-bezier(.34,1.56,.64,1); max-width: 300px; box-shadow: 0 8px 32px rgba(0,0,0,.4); }
 .toast.success { border-color: rgba(111,207,122,.42); }
@@ -449,6 +462,50 @@ body.light-mode .fg input, body.light-mode .fg textarea, body.light-mode .fg sel
 </style>
 </head>
 <body>
+
+<!-- EVENTS AGENT MODAL -->
+<div class="modal-overlay hidden" id="events-agent-modal">
+<div class="modal" style="width:620px;max-width:95vw">
+  <button class="modal-close" onclick="closeEventsAgentModal()" title="Fechar (Esc)">&times;</button>
+  <h2>🔍 Rastrear Eventos</h2>
+  <p style="font-size:13px;color:var(--sage);margin-bottom:16px;line-height:1.6">
+    Cole a URL de uma página de eventos (Sympla, Eventbrite, etc.) e o agente vai rastrear todos os eventos encontrados.
+  </p>
+  <div class="fg">
+    <label>URL da página</label>
+    <input id="events-agent-url" placeholder="https://sympla.com.br/produtor/..." style="width:100%"/>
+  </div>
+  <div id="events-agent-status" style="font-size:12.5px;color:var(--sage);margin:12px 0;display:none"></div>
+  <div id="events-agent-list" style="max-height:400px;overflow-y:auto;margin:16px 0;display:none"></div>
+  <div class="modal-actions">
+    <button class="btn-ghost" onclick="closeEventsAgentModal()">Cancelar</button>
+    <button class="btn-primary" id="events-agent-scan-btn" onclick="scanEventsFromUrl()">Rastrear eventos</button>
+    <button class="btn-primary" id="events-agent-add-btn" style="display:none" onclick="addSelectedEvents()">Adicionar selecionados</button>
+  </div>
+</div>
+</div>
+
+<!-- MOVIES AGENT MODAL -->
+<div class="modal-overlay hidden" id="movies-agent-modal">
+<div class="modal" style="width:620px;max-width:95vw">
+  <button class="modal-close" onclick="closeMoviesAgentModal()" title="Fechar (Esc)">&times;</button>
+  <h2>🎬 Rastrear Filmes</h2>
+  <p style="font-size:13px;color:var(--sage);margin-bottom:16px;line-height:1.6">
+    Cole a URL de uma página de cinema (Cinemark, Kinoplex, etc.) e o agente vai rastrear todos os filmes em cartaz.
+  </p>
+  <div class="fg">
+    <label>URL da página do cinema</label>
+    <input id="movies-agent-url" placeholder="https://www.cinemark.com.br/..." style="width:100%"/>
+  </div>
+  <div id="movies-agent-status" style="font-size:12.5px;color:var(--sage);margin:12px 0;display:none"></div>
+  <div id="movies-agent-list" style="max-height:400px;overflow-y:auto;margin:16px 0;display:none"></div>
+  <div class="modal-actions">
+    <button class="btn-ghost" onclick="closeMoviesAgentModal()">Cancelar</button>
+    <button class="btn-primary" id="movies-agent-scan-btn" onclick="scanMoviesFromUrl()">Rastrear filmes</button>
+    <button class="btn-primary" id="movies-agent-add-btn" style="display:none" onclick="addSelectedMovies()">Adicionar selecionados</button>
+  </div>
+</div>
+</div>
 
 <!-- EVENTS VIEWER MODAL -->
 <div class="modal-overlay hidden" id="events-modal">
@@ -527,6 +584,68 @@ body.light-mode .fg input, body.light-mode .fg textarea, body.light-mode .fg sel
   <div class="modal-actions">
     <button class="btn-ghost" onclick="closeBatchModal()">Cancelar</button>
     <button class="btn-primary" id="batch-start-btn" onclick="startBatchLinks()">Extrair e revisar</button>
+  </div>
+</div>
+</div>
+
+<!-- EVENTS AGENT MODAL -->
+<div class="modal-overlay hidden" id="events-agent-modal">
+<div class="modal" style="width:650px;max-width:95vw">
+  <button class="modal-close" onclick="closeEventsAgent()" title="Fechar (Esc)">&times;</button>
+  <h2>🤖 Agente de Rastreamento de Eventos</h2>
+  <p style="font-size:13px;color:var(--sage);margin-bottom:16px;line-height:1.6">
+    Cole a URL de uma página de ingressos e o agente vai rastrear todos os eventos disponíveis.
+  </p>
+  <div class="fg">
+    <label>URL da Página de Ingressos</label>
+    <input id="events-agent-url" placeholder="https://sympla.com.br/produtor/..." />
+  </div>
+  <div id="events-agent-status" style="font-size:12.5px;color:var(--sage);margin-bottom:12px;display:none"></div>
+  <div id="events-agent-progress" style="display:none;margin-bottom:14px">
+    <div style="background:rgba(162,123,92,.1);border-radius:8px;height:6px;overflow:hidden">
+      <div id="events-agent-bar" style="height:100%;background:linear-gradient(90deg,var(--brown),#c49a72);border-radius:8px;width:0%;transition:width .4s ease"></div>
+    </div>
+    <div id="events-agent-label" style="font-size:11.5px;color:var(--sage);margin-top:6px;text-align:center"></div>
+  </div>
+  <div id="events-agent-results" style="max-height:400px;overflow-y:auto;display:none">
+    <div style="font-size:12px;color:var(--sage);margin-bottom:10px">Selecione os eventos que deseja cadastrar:</div>
+    <div id="events-agent-list"></div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-ghost" onclick="closeEventsAgent()">Cancelar</button>
+    <button class="btn-primary" id="events-agent-crawl-btn" onclick="crawlEventsPage()">Rastrear Eventos</button>
+    <button class="btn-primary" id="events-agent-add-btn" onclick="addSelectedEvents()" style="display:none">Cadastrar Selecionados</button>
+  </div>
+</div>
+</div>
+
+<!-- MOVIES AGENT MODAL -->
+<div class="modal-overlay hidden" id="movies-agent-modal">
+<div class="modal" style="width:650px;max-width:95vw">
+  <button class="modal-close" onclick="closeMoviesAgent()" title="Fechar (Esc)">&times;</button>
+  <h2>🎬 Agente de Rastreamento de Filmes</h2>
+  <p style="font-size:13px;color:var(--sage);margin-bottom:16px;line-height:1.6">
+    Cole a URL de uma página de cinema e o agente vai rastrear todos os filmes em cartaz.
+  </p>
+  <div class="fg">
+    <label>URL da Página do Cinema</label>
+    <input id="movies-agent-url" placeholder="https://www.cinemark.com.br/cinema/..." />
+  </div>
+  <div id="movies-agent-status" style="font-size:12.5px;color:var(--sage);margin-bottom:12px;display:none"></div>
+  <div id="movies-agent-progress" style="display:none;margin-bottom:14px">
+    <div style="background:rgba(162,123,92,.1);border-radius:8px;height:6px;overflow:hidden">
+      <div id="movies-agent-bar" style="height:100%;background:linear-gradient(90deg,var(--brown),#c49a72);border-radius:8px;width:0%;transition:width .4s ease"></div>
+    </div>
+    <div id="movies-agent-label" style="font-size:11.5px;color:var(--sage);margin-top:6px;text-align:center"></div>
+  </div>
+  <div id="movies-agent-results" style="max-height:400px;overflow-y:auto;display:none">
+    <div style="font-size:12px;color:var(--sage);margin-bottom:10px">Selecione os filmes que deseja cadastrar:</div>
+    <div id="movies-agent-list"></div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-ghost" onclick="closeMoviesAgent()">Cancelar</button>
+    <button class="btn-primary" id="movies-agent-crawl-btn" onclick="crawlMoviesPage()">Rastrear Filmes</button>
+    <button class="btn-primary" id="movies-agent-add-btn" onclick="addSelectedMovies()" style="display:none">Cadastrar Selecionados</button>
   </div>
 </div>
 </div>

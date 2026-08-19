@@ -122,6 +122,8 @@ function setupKeyboardShortcuts() {
       closeEventsModal();
       closeEditModal();
       closeBatchModal();
+      closeEventsAgent();
+      closeMoviesAgent();
     }
     
     // Ctrl+K or Cmd+K: search
@@ -157,7 +159,7 @@ function setupKeyboardShortcuts() {
     }
   });
   
-  ['cfg-modal','events-modal','edit-modal','batch-modal'].forEach(id => {
+  ['cfg-modal','events-modal','edit-modal','batch-modal','events-agent-modal','movies-agent-modal'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('click', e => {
       if (e.target === el) el.classList.add('hidden');
@@ -2587,4 +2589,468 @@ function welcomeImproved() {
 // ── MAIN INIT ──
 function initv4() {
   // Basic initialization - gamification removed for v5.0
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// EVENTS AGENT & MOVIES AGENT
+// ════════════════════════════════════════════════════════════════
+
+let eventsAgentData = [];
+let moviesAgentData = [];
+
+// ── EVENTS AGENT ──
+
+function openEventsAgent() {
+  document.getElementById('events-agent-modal').classList.remove('hidden');
+  document.getElementById('events-agent-url').value = '';
+  document.getElementById('events-agent-status').style.display = 'none';
+  document.getElementById('events-agent-progress').style.display = 'none';
+  document.getElementById('events-agent-results').style.display = 'none';
+  document.getElementById('events-agent-crawl-btn').style.display = '';
+  document.getElementById('events-agent-add-btn').style.display = 'none';
+  eventsAgentData = [];
+}
+
+function closeEventsAgent() {
+  document.getElementById('events-agent-modal').classList.add('hidden');
+}
+
+async function crawlEventsPage() {
+  const url = document.getElementById('events-agent-url').value.trim();
+  
+  if (!url) {
+    toast('Cole uma URL para rastrear', 'error');
+    return;
+  }
+  
+  if (!isUrl(url)) {
+    toast('URL inválida', 'error');
+    return;
+  }
+  
+  const statusEl = document.getElementById('events-agent-status');
+  const progressEl = document.getElementById('events-agent-progress');
+  const barEl = document.getElementById('events-agent-bar');
+  const labelEl = document.getElementById('events-agent-label');
+  const resultsEl = document.getElementById('events-agent-results');
+  const listEl = document.getElementById('events-agent-list');
+  const crawlBtn = document.getElementById('events-agent-crawl-btn');
+  const addBtn = document.getElementById('events-agent-add-btn');
+  
+  statusEl.style.display = '';
+  statusEl.textContent = '🔍 Rastreando página...';
+  progressEl.style.display = '';
+  barEl.style.width = '10%';
+  labelEl.textContent = 'Baixando conteúdo...';
+  crawlBtn.disabled = true;
+  resultsEl.style.display = 'none';
+  
+  try {
+    // Fetch page content
+    const html = await fetchPageHTML(url);
+    barEl.style.width = '40%';
+    labelEl.textContent = 'Analisando conteúdo com IA...';
+    
+    // Extract events using AI
+    const events = await extractEventsWithAI(html, url);
+    barEl.style.width = '100%';
+    labelEl.textContent = 'Concluído!';
+    
+    if (!events || events.length === 0) {
+      statusEl.textContent = '❌ Nenhum evento encontrado nesta página';
+      progressEl.style.display = 'none';
+      crawlBtn.disabled = false;
+      return;
+    }
+    
+    eventsAgentData = events;
+    renderEventsList(events, listEl);
+    
+    statusEl.style.display = 'none';
+    progressEl.style.display = 'none';
+    resultsEl.style.display = '';
+    crawlBtn.style.display = 'none';
+    addBtn.style.display = '';
+    
+  } catch(e) {
+    console.error(e);
+    statusEl.textContent = '❌ Erro: ' + e.message;
+    progressEl.style.display = 'none';
+    crawlBtn.disabled = false;
+  }
+}
+
+async function fetchPageHTML(url) {
+  const proxies = [
+    u => 'https://corsproxy.io/?' + encodeURIComponent(u),
+    u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u),
+    u => 'https://api.allorigins.win/get?url=' + encodeURIComponent(u),
+  ];
+  
+  for (const makeProxy of proxies) {
+    try {
+      const r = await fetch(makeProxy(url), {signal: AbortSignal.timeout(10000)});
+      if (!r.ok) continue;
+      const html = await r.text();
+      return html.length > 500 ? html : null;
+    } catch(e) {
+      console.log('[Agent] Proxy failed:', e.message);
+    }
+  }
+  
+  throw new Error('Não foi possível acessar a página. Tente outro URL ou verifique se a página está acessível.');
+}
+
+async function extractEventsWithAI(html, sourceUrl) {
+  // Clean HTML
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  
+  // Remove scripts, styles, etc
+  div.querySelectorAll('script,style,nav,footer,header,aside,iframe,noscript').forEach(el => el.remove());
+  
+  const text = div.innerText
+    .replace(/\s+/g, ' ')
+    .trim()
+    .substring(0, 8000);
+  
+  if (text.length < 100) {
+    throw new Error('Página com muito pouco conteúdo. Tente outra URL.');
+  }
+  
+  const prompt = `Analise o seguinte conteúdo de uma página de ingressos e extraia TODOS os eventos listados.
+Para cada evento, retorne um objeto JSON com:
+- title: nome do evento/artista
+- date: data no formato YYYY-MM-DD (se não tiver ano, use 2026)
+- venue: local do evento (nome da casa/teatro/arena)
+- ticketLink: link direto para compra (ou null)
+
+Retorne um array JSON com todos os eventos encontrados. Se não encontrar eventos, retorne array vazio [].
+IMPORTANTE: Responda APENAS com o array JSON, sem markdown ou explicações.
+
+Conteúdo da página:
+${text}
+
+Source URL: ${sourceUrl}`;
+
+  const response = await callOpenRouter(prompt);
+  
+  // Parse JSON from response
+  const jsonMatch = response.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) {
+    throw new Error('IA não conseguiu identificar eventos nesta página.');
+  }
+  
+  const events = JSON.parse(jsonMatch[0]);
+  
+  // Add source URL to each event
+  events.forEach(ev => {
+    ev.sourceUrl = sourceUrl;
+    ev.selected = false;
+  });
+  
+  return events;
+}
+
+function renderEventsList(events, container) {
+  container.innerHTML = events.map((ev, idx) => `
+    <div class="agent-item" id="event-item-${idx}">
+      <div class="agent-item-check" onclick="toggleEventSelection(${idx})"></div>
+      <div class="agent-item-content">
+        <div class="agent-item-title">${esc(ev.title)}</div>
+        <div class="agent-item-meta">
+          <span>📅 ${fmtDate(ev.date)}</span>
+          <span>📍 ${esc(ev.venue || 'Local não informado')}</span>
+          ${ev.ticketLink ? '<span>🎫 Link disponível</span>' : ''}
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleEventSelection(idx) {
+  const checkEl = document.querySelector(`#event-item-${idx} .agent-item-check`);
+  eventsAgentData[idx].selected = !eventsAgentData[idx].selected;
+  checkEl.classList.toggle('selected', eventsAgentData[idx].selected);
+}
+
+async function addSelectedEvents() {
+  const selected = eventsAgentData.filter(ev => ev.selected);
+  
+  if (selected.length === 0) {
+    toast('Selecione ao menos um evento', 'error');
+    return;
+  }
+  
+  closeEventsAgent();
+  
+  const statusEl = document.getElementById('events-agent-status');
+  
+  showTyping();
+  
+  let successCount = 0;
+  let failCount = 0;
+  
+  for (const ev of selected) {
+    try {
+      // Match venue from VENUES list
+      const venue = VENUES.find(v => 
+        v.name.toLowerCase().includes(ev.venue.toLowerCase()) ||
+        ev.venue.toLowerCase().includes(v.name.toLowerCase())
+      );
+      
+      const eventData = {
+        title: ev.title,
+        date: ev.date,
+        venue: venue ? venue.name : ev.venue,
+        venue_addr: venue ? venue.addr : '',
+        ticketLink: ev.ticketLink || '',
+        times: ['20:00'] // default time
+      };
+      
+      await createEvents(eventData);
+      
+      // Add to history
+      evHist.push({
+        ...eventData,
+        createdAt: new Date().toISOString()
+      });
+      
+      successCount++;
+      
+    } catch(e) {
+      console.error('Error adding event:', ev.title, e);
+      failCount++;
+    }
+  }
+  
+  hideTyping();
+  updateHist();
+  
+  if (successCount > 0) {
+    botMsg(`✅ ${successCount} evento${successCount > 1 ? 's' : ''} cadastrado${successCount > 1 ? 's' : ''} com sucesso!`);
+  }
+  
+  if (failCount > 0) {
+    botMsg(`⚠️ ${failCount} evento${failCount > 1 ? 's' : ''} falharam ao cadastrar.`);
+  }
+}
+
+// ── MOVIES AGENT ──
+
+function openMoviesAgent() {
+  document.getElementById('movies-agent-modal').classList.remove('hidden');
+  document.getElementById('movies-agent-url').value = '';
+  document.getElementById('movies-agent-status').style.display = 'none';
+  document.getElementById('movies-agent-progress').style.display = 'none';
+  document.getElementById('movies-agent-results').style.display = 'none';
+  document.getElementById('movies-agent-crawl-btn').style.display = '';
+  document.getElementById('movies-agent-add-btn').style.display = 'none';
+  moviesAgentData = [];
+}
+
+function closeMoviesAgent() {
+  document.getElementById('movies-agent-modal').classList.add('hidden');
+}
+
+async function crawlMoviesPage() {
+  const url = document.getElementById('movies-agent-url').value.trim();
+  
+  if (!url) {
+    toast('Cole uma URL para rastrear', 'error');
+    return;
+  }
+  
+  if (!isUrl(url)) {
+    toast('URL inválida', 'error');
+    return;
+  }
+  
+  const statusEl = document.getElementById('movies-agent-status');
+  const progressEl = document.getElementById('movies-agent-progress');
+  const barEl = document.getElementById('movies-agent-bar');
+  const labelEl = document.getElementById('movies-agent-label');
+  const resultsEl = document.getElementById('movies-agent-results');
+  const listEl = document.getElementById('movies-agent-list');
+  const crawlBtn = document.getElementById('movies-agent-crawl-btn');
+  const addBtn = document.getElementById('movies-agent-add-btn');
+  
+  statusEl.style.display = '';
+  statusEl.textContent = '🔍 Rastreando página...';
+  progressEl.style.display = '';
+  barEl.style.width = '10%';
+  labelEl.textContent = 'Baixando conteúdo...';
+  crawlBtn.disabled = true;
+  resultsEl.style.display = 'none';
+  
+  try {
+    // Fetch page content
+    const html = await fetchPageHTML(url);
+    barEl.style.width = '40%';
+    labelEl.textContent = 'Analisando conteúdo com IA...';
+    
+    // Extract movies using AI
+    const movies = await extractMoviesWithAI(html, url);
+    barEl.style.width = '100%';
+    labelEl.textContent = 'Concluído!';
+    
+    if (!movies || movies.length === 0) {
+      statusEl.textContent = '❌ Nenhum filme encontrado nesta página';
+      progressEl.style.display = 'none';
+      crawlBtn.disabled = false;
+      return;
+    }
+    
+    moviesAgentData = movies;
+    renderMoviesList(movies, listEl);
+    
+    statusEl.style.display = 'none';
+    progressEl.style.display = 'none';
+    resultsEl.style.display = '';
+    crawlBtn.style.display = 'none';
+    addBtn.style.display = '';
+    
+  } catch(e) {
+    console.error(e);
+    statusEl.textContent = '❌ Erro: ' + e.message;
+    progressEl.style.display = 'none';
+    crawlBtn.disabled = false;
+  }
+}
+
+async function extractMoviesWithAI(html, sourceUrl) {
+  // Clean HTML
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  
+  // Remove scripts, styles, etc
+  div.querySelectorAll('script,style,nav,footer,header,aside,iframe,noscript').forEach(el => el.remove());
+  
+  const text = div.innerText
+    .replace(/\s+/g, ' ')
+    .trim()
+    .substring(0, 8000);
+  
+  if (text.length < 100) {
+    throw new Error('Página com muito pouco conteúdo. Tente outra URL.');
+  }
+  
+  const prompt = `Analise o seguinte conteúdo de uma página de cinema e extraia TODOS os filmes em cartaz com suas sessões.
+Para cada filme, retorne um objeto JSON com:
+- title: nome do filme
+- date: data de uma das sessões no formato YYYY-MM-DD (use 2026 se não tiver ano)
+- time: horário da sessão (formato HH:MM)
+- venue: nome do cinema
+- ticketLink: link direto para compra (ou null)
+
+Se um filme tem várias sessões no mesmo dia, crie um objeto para cada horário.
+Retorne um array JSON com todos os filmes/sessões encontrados. Se não encontrar, retorne array vazio [].
+IMPORTANTE: Responda APENAS com o array JSON, sem markdown ou explicações.
+
+Conteúdo da página:
+${text}
+
+Source URL: ${sourceUrl}`;
+
+  const response = await callOpenRouter(prompt);
+  
+  // Parse JSON from response
+  const jsonMatch = response.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) {
+    throw new Error('IA não conseguiu identificar filmes nesta página.');
+  }
+  
+  const movies = JSON.parse(jsonMatch[0]);
+  
+  // Add source URL to each movie
+  movies.forEach(mv => {
+    mv.sourceUrl = sourceUrl;
+    mv.selected = false;
+  });
+  
+  return movies;
+}
+
+function renderMoviesList(movies, container) {
+  container.innerHTML = movies.map((mv, idx) => `
+    <div class="agent-item" id="movie-item-${idx}">
+      <div class="agent-item-check" onclick="toggleMovieSelection(${idx})"></div>
+      <div class="agent-item-content">
+        <div class="agent-item-title">${esc(mv.title)}</div>
+        <div class="agent-item-meta">
+          <span>📅 ${fmtDate(mv.date)}</span>
+          <span>🕐 ${mv.time || '—'}</span>
+          <span>🎬 ${esc(mv.venue || 'Cinema não informado')}</span>
+          ${mv.ticketLink ? '<span>🎫 Link disponível</span>' : ''}
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleMovieSelection(idx) {
+  const checkEl = document.querySelector(`#movie-item-${idx} .agent-item-check`);
+  moviesAgentData[idx].selected = !moviesAgentData[idx].selected;
+  checkEl.classList.toggle('selected', moviesAgentData[idx].selected);
+}
+
+async function addSelectedMovies() {
+  const selected = moviesAgentData.filter(mv => mv.selected);
+  
+  if (selected.length === 0) {
+    toast('Selecione ao menos um filme', 'error');
+    return;
+  }
+  
+  closeMoviesAgent();
+  
+  showTyping();
+  
+  let successCount = 0;
+  let failCount = 0;
+  
+  for (const mv of selected) {
+    try {
+      // Match venue from VENUES list or use cinema name
+      const venue = VENUES.find(v => 
+        v.name.toLowerCase().includes(mv.venue.toLowerCase()) ||
+        mv.venue.toLowerCase().includes(v.name.toLowerCase())
+      );
+      
+      const eventData = {
+        title: mv.title,
+        date: mv.date,
+        venue: venue ? venue.name : mv.venue,
+        venue_addr: venue ? venue.addr : '',
+        ticketLink: mv.ticketLink || '',
+        times: [mv.time || '19:00']
+      };
+      
+      await createEvents(eventData);
+      
+      // Add to history
+      evHist.push({
+        ...eventData,
+        createdAt: new Date().toISOString()
+      });
+      
+      successCount++;
+      
+    } catch(e) {
+      console.error('Error adding movie:', mv.title, e);
+      failCount++;
+    }
+  }
+  
+  hideTyping();
+  updateHist();
+  
+  if (successCount > 0) {
+    botMsg(`✅ ${successCount} filme${successCount > 1 ? 's' : ''} cadastrado${successCount > 1 ? 's' : ''} com sucesso!`);
+  }
+  
+  if (failCount > 0) {
+    botMsg(`⚠️ ${failCount} filme${failCount > 1 ? 's' : ''} falharam ao cadastrar.`);
+  }
 }
