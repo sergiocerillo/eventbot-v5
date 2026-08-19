@@ -463,50 +463,6 @@ body.light-mode .fg input, body.light-mode .fg textarea, body.light-mode .fg sel
 </head>
 <body>
 
-<!-- EVENTS AGENT MODAL -->
-<div class="modal-overlay hidden" id="events-agent-modal">
-<div class="modal" style="width:620px;max-width:95vw">
-  <button class="modal-close" onclick="closeEventsAgentModal()" title="Fechar (Esc)">&times;</button>
-  <h2>🔍 Rastrear Eventos</h2>
-  <p style="font-size:13px;color:var(--sage);margin-bottom:16px;line-height:1.6">
-    Cole a URL de uma página de eventos (Sympla, Eventbrite, etc.) e o agente vai rastrear todos os eventos encontrados.
-  </p>
-  <div class="fg">
-    <label>URL da página</label>
-    <input id="events-agent-url" placeholder="https://sympla.com.br/produtor/..." style="width:100%"/>
-  </div>
-  <div id="events-agent-status" style="font-size:12.5px;color:var(--sage);margin:12px 0;display:none"></div>
-  <div id="events-agent-list" style="max-height:400px;overflow-y:auto;margin:16px 0;display:none"></div>
-  <div class="modal-actions">
-    <button class="btn-ghost" onclick="closeEventsAgentModal()">Cancelar</button>
-    <button class="btn-primary" id="events-agent-scan-btn" onclick="scanEventsFromUrl()">Rastrear eventos</button>
-    <button class="btn-primary" id="events-agent-add-btn" style="display:none" onclick="addSelectedEvents()">Adicionar selecionados</button>
-  </div>
-</div>
-</div>
-
-<!-- MOVIES AGENT MODAL -->
-<div class="modal-overlay hidden" id="movies-agent-modal">
-<div class="modal" style="width:620px;max-width:95vw">
-  <button class="modal-close" onclick="closeMoviesAgentModal()" title="Fechar (Esc)">&times;</button>
-  <h2>🎬 Rastrear Filmes</h2>
-  <p style="font-size:13px;color:var(--sage);margin-bottom:16px;line-height:1.6">
-    Cole a URL de uma página de cinema (Cinemark, Kinoplex, etc.) e o agente vai rastrear todos os filmes em cartaz.
-  </p>
-  <div class="fg">
-    <label>URL da página do cinema</label>
-    <input id="movies-agent-url" placeholder="https://www.cinemark.com.br/..." style="width:100%"/>
-  </div>
-  <div id="movies-agent-status" style="font-size:12.5px;color:var(--sage);margin:12px 0;display:none"></div>
-  <div id="movies-agent-list" style="max-height:400px;overflow-y:auto;margin:16px 0;display:none"></div>
-  <div class="modal-actions">
-    <button class="btn-ghost" onclick="closeMoviesAgentModal()">Cancelar</button>
-    <button class="btn-primary" id="movies-agent-scan-btn" onclick="scanMoviesFromUrl()">Rastrear filmes</button>
-    <button class="btn-primary" id="movies-agent-add-btn" style="display:none" onclick="addSelectedMovies()">Adicionar selecionados</button>
-  </div>
-</div>
-</div>
-
 <!-- EVENTS VIEWER MODAL -->
 <div class="modal-overlay hidden" id="events-modal">
 <div class="modal" style="width:580px;max-width:95vw">
