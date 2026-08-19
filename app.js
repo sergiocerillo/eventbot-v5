@@ -123,11 +123,44 @@ function setupTextarea() {
 
 function setupKeyboardShortcuts() {
   document.addEventListener('keydown', e => {
+    // Escape: close modals
     if (e.key === 'Escape') {
       closeModal();
       closeEventsModal();
       closeEditModal();
       closeBatchModal();
+    }
+    
+    // Ctrl+K or Cmd+K: search
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      // Add search functionality later
+    }
+    
+    // Ctrl+P or Cmd+P: print events
+    if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+      e.preventDefault();
+      window.print();
+    }
+    
+    // Ctrl+N or Cmd+N: new event
+    if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+      e.preventDefault();
+      switchPage('chat');
+    }
+    
+    // Ctrl+F or Cmd+F: focus search
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      e.preventDefault();
+      // Add search functionality later
+    }
+    
+    // Ctrl+S or Cmd+S: save config
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      if (!document.getElementById('cfg-modal').classList.contains('hidden')) {
+        saveCfg();
+      }
     }
   });
   
@@ -403,8 +436,27 @@ async function createEvents(ev) {
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       let msg = err?.error?.message || 'HTTP ' + r.status;
+      
       if (r.status === 403 || msg.includes('writer') || msg.includes('insufficient authentication scopes')) {
-        msg += '<br><br><strong>Solução:</strong> Configure o Calendar ID como <code>primary</code> no menu Configurações.<br>Clique no botão ⚠️ "Tentar Calendar ID primary" para configurar automaticamente.';
+        msg = '⚠️ <strong>Não foi possível criar o evento.</strong><br><br>' +
+              'O Google Calendar retornou um erro de permissão.<br>' +
+              'Isso acontece quando o Calendar ID está incorreto ou sem permissões.<br><br>' +
+              '<strong>Solução:</strong><br>' +
+              '1. Clique em "Configurações" no menu lateral<br>' +
+              '2. Clique no botão ⚠️ "Tentar Calendar ID primary"<br>' +
+              '3. Salve e tente novamente<br><br>' +
+              '<em>Ou use Service Account para acesso permanente.</em>';
+      } else if (r.status === 404) {
+        msg = '📅 <strong>Calendar ID não encontrado.</strong><br><br>' +
+              'O ID do calendário está incorreto.<br>' +
+              'Certifique-se de copiar o ID correto do Google Calendar.';
+      } else if (r.status === 401) {
+        msg = '🔒 <strong>Sessão expirada.</strong><br><br>' +
+              'Você precisa se autenticar novamente no Google.<br>' +
+              'Tente novamente.';
+      } else {
+        msg = '❌ <strong>Erro ao criar evento:</strong> ' + msg + '<br><br>' +
+              'Tente novamente ou use o cadastro manual.';
       }
       throw new Error(msg);
     }
@@ -1500,15 +1552,54 @@ function showMoviePreview(ev) {
 // HISTORY
 // ════════════════════════════════════════════════════════════════
 
+// ── UNDO SYSTEM ──
+let lastAction = null;
+
 function addHist(ev) {
   evHist.unshift(ev);
   if (ev.venue) sessionVenues.add(ev.venue);
   addPoints(10, 'Evento cadastrado');
   checkBadges();
   renderHist();
+  
+  // Set undo action
+  lastAction = {
+    type: 'add',
+    index: 0,
+    event: ev
+  };
+  
+  // Show undo toast
+  toast('Evento criado! 👍', 'success');
+  
+  // Add undo button
+  const toastEl = document.getElementById('toast');
+  if (toastEl) {
+    toastEl.innerHTML += '<button onclick="undoLastAction()" style="margin-left:8px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">Desfazer</button>';
+  }
+  
+  // Clear undo after 10 seconds
+  setTimeout(() => {
+    lastAction = null;
+  }, 10000);
+}
+
+function undoLastAction() {
+  if (!lastAction) return;
+  
+  if (lastAction.type === 'add') {
+    evHist.shift(); // Remove the first (just added) event
+    sessionVenues.delete(lastAction.event.venue);
+    renderHist();
+    toast('Ação desfeita.', '');
+  }
+  
+  lastAction = null;
 }
 
 function renderHist() {
+  const search = document.getElementById('hist-search')?.value?.toLowerCase() || '';
+  
   document.getElementById('stat-count').textContent = evHist.length;
   document.getElementById('stat-venues').textContent = sessionVenues.size;
   
@@ -1521,7 +1612,22 @@ function renderHist() {
     return;
   }
   
-  document.getElementById('hist-list').innerHTML = evHist.map((e, i) => {
+  // Filter events by search
+  const filtered = search 
+    ? evHist.filter(e => 
+        (e.title?.toLowerCase().includes(search)) || 
+        (e.venue?.toLowerCase().includes(search)) ||
+        (e.date?.includes(search))
+      )
+    : evHist;
+  
+  if (filtered.length === 0) {
+    document.getElementById('hist-list').innerHTML = '<div class="h-empty">Nenhum evento encontrado.</div>';
+    return;
+  }
+  
+  document.getElementById('hist-list').innerHTML = filtered.map((e, idx) => {
+    const i = evHist.indexOf(e);
     const typeBadge = e.type === 'movie'
       ? '<span style="font-size:10px;padding:1px 7px;border-radius:8px;background:rgba(97,97,97,.25);color:#aaa;margin-left:4px">filme</span>'
       : '';
@@ -1532,6 +1638,9 @@ function renderHist() {
       '</div>';
   }).join('');
 }
+
+// Search events in sidebar
+document.getElementById('hist-search')?.addEventListener('input', renderHist);
 
 // ════════════════════════════════════════════════════════════════
 // MODALS
@@ -2071,8 +2180,9 @@ async function startBatchLinks() {
   
   for (let i = 0; i < links.length; i++) {
     const url = links[i];
-    barEl.style.width = Math.round((i / links.length) * 100) + '%';
-    labelEl.textContent = 'Processando ' + (i + 1) + ' de ' + links.length + '...';
+    const percent = Math.round(((i + 1) / links.length) * 100);
+    barEl.style.width = percent + '%';
+    labelEl.textContent = 'Extraindo dados: ' + (i + 1) + '/' + links.length + ' (' + percent + '%)';
     
     try {
       const ex = await extractFromLinkEnhanced(url);
