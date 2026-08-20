@@ -400,23 +400,25 @@ async function ensureAuth() {
 async function createEvents(ev) {
   await ensureAuth();
   const out = [];
-  
-  for (const slot of (ev.times || ['11:00'])) {
+
+  const slots = ev.allDay ? [null] : (ev.times || ['11:00']);
+
+  for (const slot of slots) {
     const resource = {
       summary: ev.title,
       location: ev.venue_addr || ev.venue || '',
       description: ev.ticketLink ? 'Ingressos: ' + ev.ticketLink : (ev.desc || ''),
-      start: {
-        dateTime: ev.date + 'T' + slot + ':00',
-        timeZone: 'America/Sao_Paulo'
-      },
-      end: {
-        dateTime: ev.date + 'T' + END_T + ':00',
-        timeZone: 'America/Sao_Paulo'
-      },
+      start: ev.allDay
+        ? {date: ev.date}
+        : {dateTime: ev.date + 'T' + slot + ':00', timeZone: 'America/Sao_Paulo'},
+      end: ev.allDay
+        ? {date: ev.date}
+        : {dateTime: ev.date + 'T' + END_T + ':00', timeZone: 'America/Sao_Paulo'},
     };
-    
-    const url = 'https://www.googleapis.com/calendar/v3/calendars/' + 
+
+    if (ev.colorId) resource.colorId = ev.colorId;
+
+    const url = 'https://www.googleapis.com/calendar/v3/calendars/' +
                 encodeURIComponent(cfg.calendarId) + '/events';
     
     const r = await fetch(url, {
@@ -3111,7 +3113,8 @@ async function addSelectedMovies() {
         venue: venue ? venue.name : mv.venue,
         venue_addr: venue ? venue.addr : '',
         ticketLink: mv.ticketLink || '',
-        times: [mv.time || '19:00']
+        allDay: true,
+        colorId: '8', // Grafite
       };
       
       await createEvents(eventData);
