@@ -2932,19 +2932,37 @@ async function crawlIngressoMovies() {
   
   try {
     const url = 'https://www.ingresso.com/filmes/em-breve';
-    
+
     barEl.style.width = '30%';
     labelEl.textContent = 'Baixando conteúdo...';
-    
-    // Tenta buscar via proxy
-    const proxy = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
-    const r = await fetch(proxy, { signal: AbortSignal.timeout(15000) });
-    
-    if (!r.ok) {
-      throw new Error('Não foi possível acessar a página. Erro: ' + r.status);
+
+    // Tenta buscar via proxy, com fallback para outros proxies em caso de falha/timeout
+    const proxies = [
+      u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
+      u => 'https://corsproxy.io/?' + encodeURIComponent(u),
+      u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u),
+    ];
+
+    let html = null;
+    let lastError = null;
+
+    for (const mk of proxies) {
+      try {
+        const r = await fetch(mk(url), { signal: AbortSignal.timeout(15000) });
+        if (!r.ok) {
+          lastError = new Error('Erro: ' + r.status);
+          continue;
+        }
+        html = await r.text();
+        break;
+      } catch(e) {
+        lastError = e;
+      }
     }
-    
-    const html = await r.text();
+
+    if (html === null) {
+      throw new Error('Não foi possível acessar a página. ' + (lastError ? lastError.message : ''));
+    }
     
     barEl.style.width = '60%';
     labelEl.textContent = 'Extraindo filmes...';
@@ -2952,51 +2970,72 @@ async function crawlIngressoMovies() {
     // Parse HTML
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
-    
-    // Busca todos os elementos com data-testid="event-item"
-    const eventItems = doc.querySelectorAll('[data-testid="event-item"]');
-    
-    console.log('[Movies] Encontrados', eventItems.length, 'elementos event-item');
-    
-    if (eventItems.length === 0) {
-      throw new Error('Nenhum filme encontrado na página. Verifique se o site mudou sua estrutura.');
-    }
-    
+
     const movies = [];
-    
-    eventItems.forEach((item, idx) => {
-      // Extrai título (geralmente em h2, h3 ou link)
-      const titleEl = item.querySelector('h1, h2, h3, h4, a[title], [class*="title"], [class*="name"]');
-      const title = titleEl ? (titleEl.getAttribute('title') || titleEl.textContent.trim()) : '';
-      
-      if (!title || title.length < 2) {
-        console.log('[Movies] Item sem título:', idx);
-        return;
-      }
-      
-      // Extrai data de lançamento (se houver)
-      const text = item.textContent;
-      let dateStr = '2026-12-31'; // Default
-      
-      // Procura por padrões de data
-      const dateMatch = text.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})|(\d{1,2})\s+de\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\w*/i);
-      if (dateMatch) {
-        dateStr = normalizeDateString(dateMatch[0]);
-      }
-      
-      // Link para o filme
-      const linkEl = item.querySelector('a');
-      const link = linkEl ? linkEl.href : url;
-      
-      movies.push({
-        title: title.substring(0, 200),
-        date: dateStr,
-        venue: 'Cinema',
-        ticketLink: link,
-        sourceUrl: url,
-        selected: false
+
+    // Estratégia 1: dados estruturados JSON-LD (a listagem em si é renderizada
+    // via JS, então o HTML estático só traz o skeleton — os filmes vêm daqui)
+    doc.querySelectorAll('script[type="application/ld+json"]').forEach(script => {
+      let data;
+      try { data = JSON.parse(script.textContent); } catch(e) { return; }
+
+      const graph = Array.isArray(data) ? data : (data['@graph'] || [data]);
+      graph.forEach(node => {
+        if (!node || node['@type'] !== 'ItemList' || !Array.isArray(node.itemListElement)) return;
+
+        node.itemListElement.forEach(li => {
+          const item = li && li.item;
+          if (!item || item['@type'] !== 'Movie' || !item.name) return;
+
+          movies.push({
+            title: item.name.substring(0, 200),
+            date: item.dateCreated || '2026-12-31',
+            venue: 'Cinema',
+            ticketLink: url,
+            sourceUrl: url,
+            selected: false
+          });
+        });
       });
     });
+
+    console.log('[Movies] Encontrados', movies.length, 'filmes via JSON-LD');
+
+    // Estratégia 2 (fallback): elementos com data-testid="event-item" no DOM
+    if (movies.length === 0) {
+      const eventItems = doc.querySelectorAll('[data-testid="event-item"]');
+
+      eventItems.forEach((item, idx) => {
+        const titleEl = item.querySelector('h1, h2, h3, h4, a[title], [class*="title"], [class*="name"]');
+        const title = titleEl ? (titleEl.getAttribute('title') || titleEl.textContent.trim()) : '';
+
+        if (!title || title.length < 2) return;
+
+        const text = item.textContent;
+        let dateStr = '2026-12-31';
+
+        const dateMatch = text.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})|(\d{1,2})\s+de\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\w*/i);
+        if (dateMatch) {
+          dateStr = normalizeDateString(dateMatch[0]);
+        }
+
+        const linkEl = item.querySelector('a');
+        const link = linkEl ? linkEl.href : url;
+
+        movies.push({
+          title: title.substring(0, 200),
+          date: dateStr,
+          venue: 'Cinema',
+          ticketLink: link,
+          sourceUrl: url,
+          selected: false
+        });
+      });
+    }
+
+    if (movies.length === 0) {
+      throw new Error('Nenhum filme encontrado na página. Verifique se o site mudou sua estrutura.');
+    }
     
     barEl.style.width = '100%';
     labelEl.textContent = 'Concluído!';
