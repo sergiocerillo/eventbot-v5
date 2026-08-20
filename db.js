@@ -28,7 +28,7 @@ async function initSupabase() {
   }
   
   try {
-    const { createClient } = window.Supabase || await import('https://esm.sh/@supabaseClient/supabaseClient-js');
+    const { createClient } = window.supabase || await import('https://esm.sh/@supabase/supabase-js');
     
     supabaseClient = createClient(
       SUPABASE_CONFIG.url,
