@@ -3036,8 +3036,6 @@ function renderMoviesList(movies, container) {
     </div>
   `).join('');
 }
-  `).join('');
-}
 
 function toggleMovieSelection(idx) {
   const checkEl = document.querySelector(`#movie-item-${idx} .agent-item-check`);
