@@ -9,7 +9,7 @@ const SUPABASE_CONFIG_DEV = {
   devMode: true
 };
 
-let supabase = null;
+let supabaseClient = null;
 let currentUser = null;
 let isDevMode = false;
 
@@ -28,9 +28,9 @@ async function initSupabase() {
   }
   
   try {
-    const { createClient } = window.Supabase || await import('https://esm.sh/@supabase/supabase-js');
+    const { createClient } = window.Supabase || await import('https://esm.sh/@supabaseClient/supabaseClient-js');
     
-    supabase = createClient(
+    supabaseClient = createClient(
       SUPABASE_CONFIG.url,
       SUPABASE_CONFIG.anonKey
     );
@@ -38,7 +38,7 @@ async function initSupabase() {
     console.log('✅ Supabase conectado!');
     
     // Check current session
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await supabaseClient.auth.getSession();
     
     if (session) {
       currentUser = session.user;
@@ -54,10 +54,10 @@ async function initSupabase() {
 
 // Auth Functions
 async function loginWithGoogle() {
-  if (!supabase) await initSupabase();
+  if (!supabaseClient) await initSupabase();
   
   try {
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { error } = await supabaseClient.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: window.location.origin,
@@ -77,9 +77,9 @@ async function loginWithGoogle() {
 }
 
 async function logout() {
-  if (!supabase) return;
+  if (!supabaseClient) return;
   
-  const { error } = await supabase.auth.signOut();
+  const { error } = await supabaseClient.auth.signOut();
   if (error) {
     console.error('❌ Erro ao fazer logout:', error);
   } else {
@@ -91,16 +91,16 @@ async function logout() {
 async function getCurrentUser() {
   if (currentUser) return currentUser;
   
-  if (!supabase) await initSupabase();
+  if (!supabaseClient) await initSupabase();
   
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await supabaseClient.auth.getUser();
   currentUser = user;
   return user;
 }
 
 // Event Functions
 async function saveEvent(event) {
-  if (!supabase) await initSupabase();
+  if (!supabaseClient) await initSupabase();
   
   const user = await getCurrentUser();
   if (!user) {
@@ -108,7 +108,7 @@ async function saveEvent(event) {
   }
   
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('events')
       .insert([{
         user_id: user.id,
@@ -137,10 +137,10 @@ async function saveEvent(event) {
 }
 
 async function loadEvents() {
-  if (!supabase) await initSupabase();
+  if (!supabaseClient) await initSupabase();
   
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('events')
       .select('*')
       .order('created_at', { ascending: false });
@@ -162,10 +162,10 @@ async function loadEvents() {
 }
 
 async function deleteEvent(eventId) {
-  if (!supabase) await initSupabase();
+  if (!supabaseClient) await initSupabase();
   
   try {
-    const { error } = await supabase
+    const { error } = await supabaseClient
       .from('events')
       .delete()
       .eq('id', eventId);
@@ -184,10 +184,10 @@ async function deleteEvent(eventId) {
 }
 
 async function updateEvent(eventId, updates) {
-  if (!supabase) await initSupabase();
+  if (!supabaseClient) await initSupabase();
   
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('events')
       .update(updates)
       .eq('id', eventId)
@@ -208,12 +208,12 @@ async function updateEvent(eventId, updates) {
 
 // Venue Functions
 async function saveVenue(venue) {
-  if (!supabase) await initSupabase();
+  if (!supabaseClient) await initSupabase();
   
   const user = await getCurrentUser();
   
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('venues')
       .insert([{
         user_id: user.id,
@@ -231,10 +231,10 @@ async function saveVenue(venue) {
 }
 
 async function loadVenues() {
-  if (!supabase) await initSupabase();
+  if (!supabaseClient) await initSupabase();
   
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('venues')
       .select('*')
       .order('name', { ascending: true });
@@ -249,12 +249,12 @@ async function loadVenues() {
 
 // Profile Functions
 async function getProfile() {
-  if (!supabase) await initSupabase();
+  if (!supabaseClient) await initSupabase();
   
   const user = await getCurrentUser();
   
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('user_profiles')
       .select('*')
       .eq('user_id', user.id)
@@ -278,12 +278,12 @@ async function getProfile() {
 }
 
 async function updateProfile(updates) {
-  if (!supabase) await initSupabase();
+  if (!supabaseClient) await initSupabase();
   
   const user = await getCurrentUser();
   
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('user_profiles')
       .upsert({
         user_id: user.id,
@@ -305,9 +305,9 @@ async function updateProfile(updates) {
 
 // Realtime
 function onEventsChange(callback) {
-  if (!supabase) return;
+  if (!supabaseClient) return;
   
-  supabase
+  supabaseClient
     .channel('events-changes')
     .on('postgres_changes', {
       event: '*',
