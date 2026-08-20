@@ -2816,8 +2816,8 @@ function normalizeDateString(str) {
 
 function renderEventsList(events, container) {
   container.innerHTML = events.map((ev, idx) => `
-    <div class="agent-item" id="event-item-${idx}">
-      <div class="agent-item-check" onclick="toggleEventSelection(${idx})"></div>
+    <div class="agent-item" id="event-item-${idx}" onclick="toggleEventSelection(${idx})">
+      <div class="agent-item-check"></div>
       <div class="agent-item-content">
         <div class="agent-item-title">${esc(ev.title)}</div>
         <div class="agent-item-meta">
@@ -2887,8 +2887,8 @@ async function addSelectedEvents() {
   }
   
   hideTyping();
-  updateHist();
-  
+  renderHist();
+
   if (successCount > 0) {
     botMsg(`✅ ${successCount} evento${successCount > 1 ? 's' : ''} cadastrado${successCount > 1 ? 's' : ''} com sucesso!`);
   }
@@ -2989,11 +2989,17 @@ async function crawlIngressoMovies() {
           const item = li && li.item;
           if (!item || item['@type'] !== 'Movie' || !item.name) return;
 
+          // O JSON-LD nao traz a URL da pagina do filme, mas o slug pode ser
+          // extraido da URL da imagem (.../movie/<slug>/...), que segue o
+          // mesmo padrao usado em ingresso.com/filme/<slug>
+          const slugMatch = (item.image || '').match(/\/movie\/([^/]+)\//);
+          const movieLink = slugMatch ? 'https://www.ingresso.com/filme/' + slugMatch[1] : url;
+
           movies.push({
             title: item.name.substring(0, 200),
             date: item.dateCreated || '2026-12-31',
             venue: 'Cinema',
-            ticketLink: url,
+            ticketLink: movieLink,
             sourceUrl: url,
             selected: false
           });
@@ -3065,8 +3071,8 @@ async function crawlIngressoMovies() {
 
 function renderMoviesList(movies, container) {
   container.innerHTML = movies.map((mv, idx) => `
-    <div class="agent-item" id="movie-item-${idx}">
-      <div class="agent-item-check" onclick="toggleMovieSelection(${idx})"></div>
+    <div class="agent-item" id="movie-item-${idx}" onclick="toggleMovieSelection(${idx})">
+      <div class="agent-item-check"></div>
       <div class="agent-item-content">
         <div class="agent-item-title">${esc(mv.title)}</div>
         <div class="agent-item-meta">
@@ -3108,6 +3114,7 @@ async function addSelectedMovies() {
       );
       
       const eventData = {
+        type: 'movie',
         title: mv.title,
         date: mv.date,
         venue: venue ? venue.name : mv.venue,
@@ -3116,25 +3123,25 @@ async function addSelectedMovies() {
         allDay: true,
         colorId: '8', // Grafite
       };
-      
+
       await createEvents(eventData);
-      
+
       // Add to history
       evHist.push({
         ...eventData,
         createdAt: new Date().toISOString()
       });
-      
+
       successCount++;
-      
+
     } catch(e) {
       console.error('Error adding movie:', mv.title, e);
       failCount++;
     }
   }
-  
+
   hideTyping();
-  updateHist();
+  renderHist();
   
   if (successCount > 0) {
     botMsg(`✅ ${successCount} filme${successCount > 1 ? 's' : ''} cadastrado${successCount > 1 ? 's' : ''} com sucesso!`);
