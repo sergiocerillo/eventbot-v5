@@ -72,6 +72,8 @@ let duplicateCache = {};
 window.addEventListener('load', () => {
   loadConfig();
   loadVenues();
+  loadHist();
+  renderHist();
   loadGapi();
   setupTextarea();
   setupKeyboardShortcuts();
@@ -98,6 +100,22 @@ function loadVenues() {
   } catch(e) {
     VENUES = JSON.parse(JSON.stringify(DEFAULT_VENUES));
   }
+}
+
+function loadHist() {
+  try {
+    const h = localStorage.getItem('eb_hist');
+    if (h) evHist = JSON.parse(h);
+  } catch(e) {
+    evHist = [];
+  }
+  evHist.forEach(ev => { if (ev.venue) sessionVenues.add(ev.venue); });
+}
+
+function saveHist() {
+  try {
+    localStorage.setItem('eb_hist', JSON.stringify(evHist));
+  } catch(e) {}
 }
 
 function setupTextarea() {
@@ -997,6 +1015,9 @@ function showPreview(ev) {
   };
   
   okBtn.onclick = async () => {
+    if (checkDuplicate(ev) && !confirm('Já existe um evento cadastrado com este título e data. Cadastrar mesmo assim?')) {
+      return;
+    }
     dis();
     showTyping();
     try {
@@ -1479,9 +1500,12 @@ function showMoviePreview(ev) {
   };
   
   m.querySelector('#mov-ok').onclick = async () => {
+    if (checkDuplicate(ev) && !confirm('Já existe um evento cadastrado com este título e data. Cadastrar mesmo assim?')) {
+      return;
+    }
     dis();
     showTyping();
-    
+
     try {
       await ensureAuth();
       
@@ -1593,8 +1617,10 @@ function undoLastAction() {
 }
 
 function renderHist() {
+  saveHist();
+
   const search = document.getElementById('hist-search')?.value?.toLowerCase() || '';
-  
+
   document.getElementById('stat-count').textContent = evHist.length;
   document.getElementById('stat-venues').textContent = sessionVenues.size;
   
@@ -2310,9 +2336,12 @@ function showBatchPreview(idx) {
   });
   
   m.querySelector('#bev-ok').onclick = async () => {
+    if (checkDuplicate(ev) && !confirm('Já existe um evento cadastrado com este título e data. Cadastrar mesmo assim?')) {
+      return;
+    }
     disAll();
     showTyping();
-    
+
     try {
       const res = await createEvents(ev);
       hideTyping();
@@ -2852,15 +2881,16 @@ async function addSelectedEvents() {
   
   let successCount = 0;
   let failCount = 0;
-  
+  let dupCount = 0;
+
   for (const ev of selected) {
     try {
       // Match venue from VENUES list
-      const venue = VENUES.find(v => 
+      const venue = VENUES.find(v =>
         v.name.toLowerCase().includes(ev.venue.toLowerCase()) ||
         ev.venue.toLowerCase().includes(v.name.toLowerCase())
       );
-      
+
       const eventData = {
         title: ev.title,
         date: ev.date,
@@ -2869,28 +2899,38 @@ async function addSelectedEvents() {
         ticketLink: ev.ticketLink || '',
         times: ['20:00'] // default time
       };
-      
-      await createEvents(eventData);
-      
+
+      if (checkDuplicate(eventData)) {
+        dupCount++;
+        continue;
+      }
+
+      const res = await createEvents(eventData);
+
       // Add to history
       evHist.push({
         ...eventData,
+        _gcalId: res && res[0] && res[0].id,
         createdAt: new Date().toISOString()
       });
-      
+
       successCount++;
-      
+
     } catch(e) {
       console.error('Error adding event:', ev.title, e);
       failCount++;
     }
   }
-  
+
   hideTyping();
   renderHist();
 
   if (successCount > 0) {
     botMsg(`✅ ${successCount} evento${successCount > 1 ? 's' : ''} cadastrado${successCount > 1 ? 's' : ''} com sucesso!`);
+  }
+
+  if (dupCount > 0) {
+    botMsg(`⏭️ ${dupCount} evento${dupCount > 1 ? 's' : ''} já cadastrado${dupCount > 1 ? 's' : ''} (ignorado${dupCount > 1 ? 's' : ''}).`);
   }
   
   if (failCount > 0) {
@@ -3104,15 +3144,16 @@ async function addSelectedMovies() {
   
   let successCount = 0;
   let failCount = 0;
-  
+  let dupCount = 0;
+
   for (const mv of selected) {
     try {
       // Match venue from VENUES list or use cinema name
-      const venue = VENUES.find(v => 
+      const venue = VENUES.find(v =>
         v.name.toLowerCase().includes(mv.venue.toLowerCase()) ||
         mv.venue.toLowerCase().includes(v.name.toLowerCase())
       );
-      
+
       const eventData = {
         type: 'movie',
         title: mv.title,
@@ -3124,11 +3165,17 @@ async function addSelectedMovies() {
         colorId: '8', // Grafite
       };
 
-      await createEvents(eventData);
+      if (checkDuplicate(eventData)) {
+        dupCount++;
+        continue;
+      }
+
+      const res = await createEvents(eventData);
 
       // Add to history
       evHist.push({
         ...eventData,
+        _gcalId: res && res[0] && res[0].id,
         createdAt: new Date().toISOString()
       });
 
@@ -3142,11 +3189,15 @@ async function addSelectedMovies() {
 
   hideTyping();
   renderHist();
-  
+
   if (successCount > 0) {
     botMsg(`✅ ${successCount} filme${successCount > 1 ? 's' : ''} cadastrado${successCount > 1 ? 's' : ''} com sucesso!`);
   }
-  
+
+  if (dupCount > 0) {
+    botMsg(`⏭️ ${dupCount} filme${dupCount > 1 ? 's' : ''} já cadastrado${dupCount > 1 ? 's' : ''} (ignorado${dupCount > 1 ? 's' : ''}).`);
+  }
+
   if (failCount > 0) {
     botMsg(`⚠️ ${failCount} filme${failCount > 1 ? 's' : ''} falharam ao cadastrar.`);
   }
