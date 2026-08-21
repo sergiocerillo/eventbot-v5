@@ -3141,7 +3141,7 @@ async function crawlIngressoMovies() {
 function renderMoviesList(movies, container) {
   container.innerHTML = movies.map((mv, idx) => `
     <div class="agent-item" id="movie-item-${idx}" onclick="toggleMovieSelection(${idx})">
-      ${mv.poster ? `<img src="${esc(mv.poster)}" alt="" class="agent-item-poster">` : ''}
+      ${mv.poster ? `<img src="${esc(mv.poster)}" alt="" class="agent-item-poster" loading="lazy" decoding="async" onerror="this.remove()">` : ''}
       <div class="agent-item-check"></div>
       <div class="agent-item-content">
         <div class="agent-item-title">${esc(mv.title)}</div>
