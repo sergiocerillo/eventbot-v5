@@ -217,11 +217,15 @@ body.light-mode .sidebar {
 .sb-hist::-webkit-scrollbar-thumb { background: rgba(162,123,92,.15); border-radius: 2px; }
 .sb-hist-search { width:100%;background:rgba(162,123,92,.07);border:1px solid rgba(162,123,92,.12);border-radius:8px;color:var(--sand);padding:6px 10px;font-family:'Google Sans',sans-serif;font-size:12px;margin-bottom:8px;outline:none; }
 .sb-hist-search::placeholder { color:rgba(162,123,92,.4); }
-.h-item { padding: 8px 10px; border-radius: 9px; border: 1px solid transparent; cursor: pointer; transition: all .15s; margin-bottom: 3px; }
+.h-item { padding: 8px 10px; border-radius: 9px; border: 1px solid transparent; cursor: pointer; transition: all .15s; margin-bottom: 3px; display: flex; align-items: center; gap: 6px; }
 .h-item:hover { background: rgba(162,123,92,.08); border-color: rgba(162,123,92,.14); }
+.h-item .h-body { flex: 1; min-width: 0; }
 .h-item .ht { font-size: 12.5px; font-weight: 500; color: var(--sand); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .h-item .hm { font-size: 11px; color: var(--sage); margin-top: 2px; }
 .h-item .hst { display: inline-block; font-size: 10px; margin-top: 4px; padding: 1px 7px; border-radius: 8px; }
+.h-del { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; border: none; background: transparent; color: var(--sage); font-size: 13px; line-height: 1; cursor: pointer; opacity: 0; transition: all .15s; display: flex; align-items: center; justify-content: center; }
+.h-item:hover .h-del { opacity: .6; }
+.h-del:hover { opacity: 1 !important; background: rgba(210,70,70,.14); color: #c07070; }
 .h-empty { font-size: 12px; color: var(--sage); font-style: italic; padding: 4px 8px; }
 
 /* ── CHAT ── */

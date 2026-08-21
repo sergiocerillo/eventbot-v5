@@ -1656,8 +1656,11 @@ function renderHist() {
       : '';
     
     return '<div class="h-item" onclick="editEventFromHist(' + i + ')">' +
+      '<div class="h-body">' +
       '<div class="ht">' + esc(e.title || '-') + typeBadge + '</div>' +
       '<div class="hm">' + fmtDate(e.date) + (e.venue ? ' &middot; ' + esc(e.venue) : '') + '</div>' +
+      '</div>' +
+      '<button class="h-del" title="Apagar do historico" onclick="deleteHistEvent(' + i + ');event.stopPropagation()">&times;</button>' +
       '</div>';
   }).join('');
 }
@@ -1969,6 +1972,36 @@ async function deleteCalEvent(btn) {
     btn.disabled = false;
     toast('Erro: ' + e.message, 'error');
   }
+}
+
+async function deleteHistEvent(i) {
+  const ev = evHist[i];
+  if (!ev) return;
+  if (!confirm('Apagar "' + (ev.title || 'este evento') + '" do historico' + (ev._gcalId ? ' e do Google Calendar' : '') + '?')) return;
+
+  if (ev._gcalId) {
+    try {
+      await ensureAuth();
+      const url = 'https://www.googleapis.com/calendar/v3/calendars/' +
+        encodeURIComponent(cfg.calendarId) + '/events/' + ev._gcalId;
+      const r = await fetch(url, {
+        method: 'DELETE',
+        headers: {'Authorization': 'Bearer ' + accessToken}
+      });
+      if (!r.ok && r.status !== 204 && r.status !== 410) {
+        const e = await r.json();
+        throw new Error(e?.error?.message || 'Erro');
+      }
+      gcalIndex = gcalIndex.filter(item => item.id !== ev._gcalId);
+    } catch(e) {
+      toast('Erro ao remover do Google Calendar: ' + e.message, 'error');
+      return;
+    }
+  }
+
+  evHist.splice(i, 1);
+  renderHist();
+  toast('Evento apagado do historico', 'success');
 }
 
 // ── VENUE MANAGER ──
