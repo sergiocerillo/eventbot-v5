@@ -2745,6 +2745,7 @@ function initv4() {
 
 let eventsAgentData = [];
 let moviesAgentData = [];
+let sescAgentData = [];
 
 // ── EVENTS AGENT ──
 
@@ -3376,5 +3377,269 @@ async function addSelectedMovies() {
 
   if (failCount > 0) {
     botMsg(`⚠️ ${failCount} filme${failCount > 1 ? 's' : ''} falharam ao cadastrar.`);
+  }
+}
+
+// ── SESC AGENT ──
+
+const SESC_API_URL = 'https://www.sescsp.org.br/wp-json/wp/v1/atividades/filter?publico=&atividade=shows-espetaculos-e-performances&linguagem=&tipo=atividade&dinamico=true&ppp=40&page=1';
+const SESC_MAX_ITEMS = 30;
+const SESC_PROXIES = [
+  u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
+  u => 'https://corsproxy.io/?' + encodeURIComponent(u),
+  u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u),
+];
+
+async function fetchSescPage(url) {
+  let lastError = null;
+  for (const mk of SESC_PROXIES) {
+    try {
+      const r = await fetch(mk(url), { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) { lastError = new Error('Erro: ' + r.status); continue; }
+      return await r.text();
+    } catch(e) {
+      lastError = e;
+    }
+  }
+  throw lastError || new Error('Falha ao acessar ' + url);
+}
+
+// Extrai a data de um datetime ISO da API ("2026-08-21T16:30") -> "YYYY-MM-DD"
+function parseSescDate(iso) {
+  const m = (iso || '').match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : '2026-12-31';
+}
+
+function openSescAgent() {
+  document.getElementById('sesc-agent-modal').classList.remove('hidden');
+  document.getElementById('sesc-agent-status').style.display = 'none';
+  document.getElementById('sesc-agent-progress').style.display = 'none';
+  document.getElementById('sesc-agent-results').style.display = 'none';
+  document.getElementById('sesc-agent-add-btn').style.display = 'none';
+  sescAgentData = [];
+
+  crawlSescShows();
+}
+
+function closeSescAgent() {
+  document.getElementById('sesc-agent-modal').classList.add('hidden');
+}
+
+async function crawlSescShows() {
+  const statusEl = document.getElementById('sesc-agent-status');
+  const progressEl = document.getElementById('sesc-agent-progress');
+  const barEl = document.getElementById('sesc-agent-bar');
+  const labelEl = document.getElementById('sesc-agent-label');
+  const resultsEl = document.getElementById('sesc-agent-results');
+  const listEl = document.getElementById('sesc-agent-list');
+  const addBtn = document.getElementById('sesc-agent-add-btn');
+
+  statusEl.style.display = '';
+  statusEl.textContent = '🎭 Buscando shows e espetáculos no Sesc São Paulo...';
+  progressEl.style.display = '';
+  barEl.style.width = '10%';
+  labelEl.textContent = 'Baixando página...';
+  resultsEl.style.display = 'none';
+
+  try {
+    barEl.style.width = '30%';
+    labelEl.textContent = 'Baixando conteúdo...';
+
+    // A API pública de atividades do Sesc já retorna JSON estruturado
+    // (a listagem em si é montada via React no cliente, sem esse endpoint
+    // o HTML estático da página não traz nenhum evento).
+    const r = await fetch(SESC_API_URL, { signal: AbortSignal.timeout(15000) });
+    if (!r.ok) throw new Error('Erro ao buscar API: ' + r.status);
+    const data = await r.json();
+    const items = (data.atividade || []).slice(0, SESC_MAX_ITEMS);
+
+    barEl.style.width = '55%';
+    labelEl.textContent = 'Extraindo shows...';
+
+    const shows = items.map(item => {
+      const unit = item.unidade && item.unidade[0];
+      return {
+        title: (item.titulo || '').substring(0, 200),
+        date: parseSescDate(item.dataPrimeiraSessao),
+        sourceUrl: 'https://www.sescsp.org.br' + item.link,
+        poster: item.imagem || '',
+        venue: unit ? ('Sesc ' + unit.name) : '',
+        venue_addr: '',
+        _unitUrl: unit ? ('https://www.sescsp.org.br' + unit.link) : '',
+        _free: !!item.gratuito,
+        _idJava: item.id_java || '',
+        ticketLink: '',
+        selected: false,
+      };
+    });
+
+    if (shows.length === 0) {
+      throw new Error('Nenhum show encontrado na API. Verifique se o site mudou sua estrutura.');
+    }
+
+    barEl.style.width = '75%';
+    labelEl.textContent = 'Buscando ingressos e endereços...';
+
+    const addrCache = {};
+
+    await Promise.all(shows.map(async sh => {
+      // Link de ingressos via API de bilheteria do Sesc (eventos gratuitos não têm)
+      if (sh._free || !sh._idJava) {
+        sh.ticketLink = sh.sourceUrl;
+      } else {
+        try {
+          const route = encodeURIComponent(`https://portal.sescsp.org.br/v2/bilheteria/atividade.action?idAtividade=${sh._idJava}`);
+          const apiUrl = `https://www.sescsp.org.br/wp-admin/admin-ajax.php?action=sesc_requester_proxy&route=${route}&method=GET`;
+          const text = await fetchSescPage(apiUrl);
+          const bilheteria = JSON.parse(text);
+          const sessao = bilheteria.sessoes && bilheteria.sessoes[0];
+          sh.ticketLink = sessao && sessao.urlCompra ? sessao.urlCompra.replace(/&amp;/g, '&') : sh.sourceUrl;
+        } catch(e) {
+          sh.ticketLink = sh.sourceUrl;
+        }
+      }
+      delete sh._free;
+      delete sh._idJava;
+
+      // Página da unidade: endereço (com cache por unidade)
+      if (sh._unitUrl) {
+        if (addrCache[sh._unitUrl] === undefined) {
+          try {
+            const unitHtml = await fetchSescPage(sh._unitUrl);
+            const unitDoc = new DOMParser().parseFromString(unitHtml, 'text/html');
+            const navbarEl = unitDoc.querySelector('#root-unidade-navbar');
+            addrCache[sh._unitUrl] = navbarEl ? (navbarEl.getAttribute('data-geo-address') || '').trim() : '';
+          } catch(e) {
+            addrCache[sh._unitUrl] = '';
+          }
+        }
+        sh.venue_addr = addrCache[sh._unitUrl];
+      }
+      delete sh._unitUrl;
+    }));
+
+    labelEl.textContent = 'Verificando duplicatas...';
+    await refreshGcalIndex();
+    const newShows = shows.filter(sh => !checkDuplicate(sh));
+    const skippedCount = shows.length - newShows.length;
+
+    barEl.style.width = '100%';
+    labelEl.textContent = 'Concluído!';
+
+    if (newShows.length === 0) {
+      statusEl.textContent = skippedCount > 0
+        ? '✅ Todos os shows encontrados já estão cadastrados.'
+        : '❌ Nenhum show válido encontrado';
+      progressEl.style.display = 'none';
+      return;
+    }
+
+    sescAgentData = newShows;
+    renderSescList(newShows, listEl);
+
+    progressEl.style.display = 'none';
+    resultsEl.style.display = '';
+    addBtn.style.display = '';
+
+    if (skippedCount > 0) {
+      statusEl.style.display = '';
+      statusEl.textContent = `ℹ️ ${skippedCount} show${skippedCount > 1 ? 's' : ''} já cadastrado${skippedCount > 1 ? 's' : ''} foi${skippedCount > 1 ? 'ram' : ''} ocultado${skippedCount > 1 ? 's' : ''} da lista.`;
+    } else {
+      statusEl.style.display = 'none';
+    }
+
+  } catch(e) {
+    console.error('[Sesc] Erro:', e);
+    statusEl.textContent = '❌ Erro: ' + e.message;
+    progressEl.style.display = 'none';
+  }
+}
+
+function renderSescList(shows, container) {
+  container.innerHTML = shows.map((sh, idx) => `
+    <div class="agent-item" id="sesc-item-${idx}" onclick="toggleSescSelection(${idx})">
+      ${sh.poster ? `<img src="${esc(sh.poster)}" alt="" class="agent-item-poster" loading="lazy" decoding="async" onerror="this.remove()">` : ''}
+      <div class="agent-item-check"></div>
+      <div class="agent-item-content">
+        <div class="agent-item-title">${esc(sh.title)}</div>
+        <div class="agent-item-meta">
+          <span>📅 ${fmtDate(sh.date)}</span>
+          ${sh.venue ? `<span>📍 ${esc(sh.venue)}${sh.venue_addr ? ' — ' + esc(sh.venue_addr) : ''}</span>` : ''}
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleSescSelection(idx) {
+  const checkEl = document.querySelector(`#sesc-item-${idx} .agent-item-check`);
+  sescAgentData[idx].selected = !sescAgentData[idx].selected;
+  checkEl.classList.toggle('selected', sescAgentData[idx].selected);
+}
+
+async function addSelectedSesc() {
+  const selected = sescAgentData.filter(sh => sh.selected);
+
+  if (selected.length === 0) {
+    toast('Selecione ao menos um show', 'error');
+    return;
+  }
+
+  closeSescAgent();
+
+  showTyping();
+  await refreshGcalIndex();
+
+  let successCount = 0;
+  let failCount = 0;
+  let dupCount = 0;
+
+  for (const sh of selected) {
+    try {
+      const eventData = {
+        type: 'show',
+        title: sh.title,
+        date: sh.date,
+        venue: sh.venue || '',
+        venue_addr: sh.venue_addr || '',
+        ticketLink: sh.ticketLink || sh.sourceUrl || '',
+        allDay: true,
+        colorId: '8', // Grafite
+      };
+
+      if (checkDuplicate(eventData)) {
+        dupCount++;
+        continue;
+      }
+
+      const res = await createEvents(eventData);
+
+      evHist.push({
+        ...eventData,
+        _gcalId: res && res[0] && res[0].id,
+        createdAt: new Date().toISOString()
+      });
+
+      successCount++;
+
+    } catch(e) {
+      console.error('Error adding sesc show:', sh.title, e);
+      failCount++;
+    }
+  }
+
+  hideTyping();
+  renderHist();
+
+  if (successCount > 0) {
+    botMsg(`✅ ${successCount} show${successCount > 1 ? 's' : ''} cadastrado${successCount > 1 ? 's' : ''} com sucesso!`);
+  }
+
+  if (dupCount > 0) {
+    botMsg(`⏭️ ${dupCount} show${dupCount > 1 ? 's' : ''} já cadastrado${dupCount > 1 ? 's' : ''} (ignorado${dupCount > 1 ? 's' : ''}).`);
+  }
+
+  if (failCount > 0) {
+    botMsg(`⚠️ ${failCount} show${failCount > 1 ? 's' : ''} falharam ao cadastrar.`);
   }
 }
