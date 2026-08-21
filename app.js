@@ -1473,7 +1473,6 @@ function showMoviePreview(ev) {
     '</div>' +
     '</div></div>' +
     '<div class="ev-card-body">' +
-    '<div class="ev-row"><span class="ev-row-lbl">Tipo</span><span class="ev-row-val">Filme</span></div>' +
     (ev.ticketLink ? '<div class="ev-row"><span class="ev-row-lbl">Link</span><span class="ev-row-val" style="font-size:12px;word-break:break-all">' + esc(ev.ticketLink) + '</span></div>' : '') +
     '<div class="ev-row"><span class="ev-row-lbl">Cor</span><span class="ev-row-val" style="display:flex;align-items:center;gap:6px"><span style="width:11px;height:11px;border-radius:50%;background:#616161;display:inline-block"></span>Grafite (marrom mais proximo)</span></div>' +
     '</div>' +
@@ -3038,7 +3037,7 @@ async function crawlIngressoMovies() {
           movies.push({
             title: item.name.substring(0, 200),
             date: item.dateCreated || '2026-12-31',
-            venue: 'Cinema',
+            venue: '',
             ticketLink: movieLink,
             sourceUrl: url,
             poster: item.image || '',
@@ -3148,7 +3147,6 @@ function renderMoviesList(movies, container) {
         <div class="agent-item-title">${esc(mv.title)}</div>
         <div class="agent-item-meta">
           <span>📅 ${fmtDate(mv.date)}</span>
-          <span>🎬 Cinema</span>
           ${mv.genre ? `<span>🏷️ ${esc(mv.genre)}</span>` : ''}
         </div>
       </div>
@@ -3180,18 +3178,12 @@ async function addSelectedMovies() {
 
   for (const mv of selected) {
     try {
-      // Match venue from VENUES list or use cinema name
-      const venue = VENUES.find(v =>
-        v.name.toLowerCase().includes(mv.venue.toLowerCase()) ||
-        mv.venue.toLowerCase().includes(v.name.toLowerCase())
-      );
-
       const eventData = {
         type: 'movie',
         title: mv.title,
         date: mv.date,
-        venue: venue ? venue.name : mv.venue,
-        venue_addr: venue ? venue.addr : '',
+        venue: '',
+        venue_addr: '',
         ticketLink: mv.ticketLink || '',
         allDay: true,
         colorId: '8', // Grafite
