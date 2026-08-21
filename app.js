@@ -1015,6 +1015,7 @@ function showPreview(ev) {
   };
   
   okBtn.onclick = async () => {
+    await refreshGcalIndex();
     if (checkDuplicate(ev) && !confirm('Já existe um evento cadastrado com este título e data. Cadastrar mesmo assim?')) {
       return;
     }
@@ -1499,6 +1500,7 @@ function showMoviePreview(ev) {
   };
   
   m.querySelector('#mov-ok').onclick = async () => {
+    await refreshGcalIndex();
     if (checkDuplicate(ev) && !confirm('Já existe um evento cadastrado com este título e data. Cadastrar mesmo assim?')) {
       return;
     }
@@ -2335,6 +2337,7 @@ function showBatchPreview(idx) {
   });
   
   m.querySelector('#bev-ok').onclick = async () => {
+    await refreshGcalIndex();
     if (checkDuplicate(ev) && !confirm('Já existe um evento cadastrado com este título e data. Cadastrar mesmo assim?')) {
       return;
     }
@@ -2513,18 +2516,70 @@ function normalizeStr(s) {
   return String(s || '').toLowerCase().replace(/[^\w]/g, '');
 }
 
-function checkDuplicate(ev) {
-  // Detecta eventos similares (título e data similares)
+// Indice de eventos ja existentes no Google Calendar (fonte da verdade,
+// baseado no id do proprio Google, nao so no que ficou salvo localmente).
+let gcalIndex = [];
+let gcalIndexFetchedAt = 0;
+
+async function refreshGcalIndex(force) {
+  if (!force && gcalIndex.length && (Date.now() - gcalIndexFetchedAt) < 120000) {
+    return gcalIndex;
+  }
+
+  try {
+    await ensureAuth();
+
+    const items = [];
+    let pageToken = '';
+    const timeMin = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+
+    for (let page = 0; page < 10; page++) {
+      const url = 'https://www.googleapis.com/calendar/v3/calendars/' +
+        encodeURIComponent(cfg.calendarId) +
+        '/events?timeMin=' + encodeURIComponent(timeMin) +
+        '&singleEvents=true&orderBy=startTime&maxResults=250' +
+        (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : '');
+
+      const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + accessToken } });
+      if (!r.ok) break;
+
+      const data = await r.json();
+      (data.items || []).forEach(ev => {
+        const date = (ev.start?.dateTime || ev.start?.date || '').substring(0, 10);
+        items.push({ id: ev.id, title: ev.summary || '', date });
+      });
+
+      if (!data.nextPageToken) break;
+      pageToken = data.nextPageToken;
+    }
+
+    gcalIndex = items;
+    gcalIndexFetchedAt = Date.now();
+  } catch(e) {
+    console.warn('Não foi possível atualizar o índice do Google Calendar:', e.message);
+  }
+
+  return gcalIndex;
+}
+
+function inGcalIndex(ev) {
   const normalized = normalizeStr(ev.title);
-  
+  return gcalIndex.some(item => normalizeStr(item.title) === normalized && item.date === ev.date);
+}
+
+function checkDuplicate(ev) {
+  // Detecta eventos similares (título e data similares) no historico local
+  // e no que ja esta cadastrado no Google Calendar (id do Google).
+  const normalized = normalizeStr(ev.title);
+
   for (let existing of evHist) {
     if (existing === ev) continue;
     if (normalizeStr(existing.title) === normalized && existing.date === ev.date) {
       return true;
     }
   }
-  
-  return false;
+
+  return inGcalIndex(ev);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2677,25 +2732,45 @@ async function crawlEventsPage() {
     
     // Extract events
     const events = await extractEventsSimple(url);
-    
-    barEl.style.width = '100%';
-    labelEl.textContent = 'Concluído!';
-    
+
     if (!events || events.length === 0) {
       statusEl.textContent = '❌ Nenhum evento encontrado. Cole o HTML da página ou tente manual.';
       progressEl.style.display = 'none';
       crawlBtn.disabled = false;
       return;
     }
-    
-    eventsAgentData = events;
-    renderEventsList(events, listEl);
-    
-    statusEl.style.display = 'none';
+
+    labelEl.textContent = 'Verificando duplicatas...';
+    await refreshGcalIndex();
+    const newEvents = events.filter(ev => !checkDuplicate(ev));
+    const skippedCount = events.length - newEvents.length;
+
+    barEl.style.width = '100%';
+    labelEl.textContent = 'Concluído!';
+
+    if (newEvents.length === 0) {
+      statusEl.textContent = skippedCount > 0
+        ? '✅ Todos os eventos encontrados já estão cadastrados.'
+        : '❌ Nenhum evento encontrado.';
+      progressEl.style.display = 'none';
+      crawlBtn.disabled = false;
+      return;
+    }
+
+    eventsAgentData = newEvents;
+    renderEventsList(newEvents, listEl);
+
     progressEl.style.display = 'none';
     resultsEl.style.display = '';
     crawlBtn.style.display = 'none';
     addBtn.style.display = '';
+
+    if (skippedCount > 0) {
+      statusEl.style.display = '';
+      statusEl.textContent = `ℹ️ ${skippedCount} evento${skippedCount > 1 ? 's' : ''} já cadastrado${skippedCount > 1 ? 's' : ''} foi${skippedCount > 1 ? 'ram' : ''} ocultado${skippedCount > 1 ? 's' : ''} da lista.`;
+    } else {
+      statusEl.style.display = 'none';
+    }
     
   } catch(e) {
     console.error(e);
@@ -2873,11 +2948,12 @@ async function addSelectedEvents() {
   }
   
   closeEventsAgent();
-  
+
   const statusEl = document.getElementById('events-agent-status');
-  
+
   showTyping();
-  
+  await refreshGcalIndex();
+
   let successCount = 0;
   let failCount = 0;
   let dupCount = 0;
@@ -3114,22 +3190,35 @@ async function crawlIngressoMovies() {
       }
     }));
 
+    labelEl.textContent = 'Verificando duplicatas...';
+    await refreshGcalIndex();
+    const newMovies = movies.filter(mv => !checkDuplicate(mv));
+    const skippedCount = movies.length - newMovies.length;
+
     barEl.style.width = '100%';
     labelEl.textContent = 'Concluído!';
-    
-    if (movies.length === 0) {
-      statusEl.textContent = '❌ Nenhum filme válido encontrado';
+
+    if (newMovies.length === 0) {
+      statusEl.textContent = skippedCount > 0
+        ? '✅ Todos os filmes encontrados já estão cadastrados.'
+        : '❌ Nenhum filme válido encontrado';
       progressEl.style.display = 'none';
       return;
     }
-    
-    moviesAgentData = movies;
-    renderMoviesList(movies, listEl);
-    
-    statusEl.style.display = 'none';
+
+    moviesAgentData = newMovies;
+    renderMoviesList(newMovies, listEl);
+
     progressEl.style.display = 'none';
     resultsEl.style.display = '';
     addBtn.style.display = '';
+
+    if (skippedCount > 0) {
+      statusEl.style.display = '';
+      statusEl.textContent = `ℹ️ ${skippedCount} filme${skippedCount > 1 ? 's' : ''} já cadastrado${skippedCount > 1 ? 's' : ''} foi${skippedCount > 1 ? 'ram' : ''} ocultado${skippedCount > 1 ? 's' : ''} da lista.`;
+    } else {
+      statusEl.style.display = 'none';
+    }
     
   } catch(e) {
     console.error('[Movies] Erro:', e);
@@ -3169,9 +3258,10 @@ async function addSelectedMovies() {
   }
   
   closeMoviesAgent();
-  
+
   showTyping();
-  
+  await refreshGcalIndex();
+
   let successCount = 0;
   let failCount = 0;
   let dupCount = 0;
