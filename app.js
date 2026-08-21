@@ -1579,8 +1579,6 @@ let lastAction = null;
 function addHist(ev) {
   evHist.unshift(ev);
   if (ev.venue) sessionVenues.add(ev.venue);
-  addPoints(10, 'Evento cadastrado');
-  checkBadges();
   renderHist();
   
   // Set undo action
