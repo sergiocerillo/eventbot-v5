@@ -138,6 +138,7 @@ function setupKeyboardShortcuts() {
     if (e.key === 'Escape') {
       closeModal();
       closeEventsModal();
+      closeShowsModal();
       closeEditModal();
       closeBatchModal();
       closeEventsAgent();
@@ -177,7 +178,7 @@ function setupKeyboardShortcuts() {
     }
   });
   
-  ['cfg-modal','events-modal','edit-modal','batch-modal','events-agent-modal','movies-agent-modal'].forEach(id => {
+  ['cfg-modal','events-modal','shows-modal','edit-modal','batch-modal','events-agent-modal','movies-agent-modal'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('click', e => {
       if (e.target === el) el.classList.add('hidden');
@@ -1707,6 +1708,66 @@ function closeEventsModal() {
   document.getElementById('events-modal').classList.add('hidden');
 }
 
+function openShowsModal() {
+  document.getElementById('shows-modal').classList.remove('hidden');
+  loadShowsList();
+}
+
+function closeShowsModal() {
+  document.getElementById('shows-modal').classList.add('hidden');
+}
+
+async function loadShowsList(force) {
+  const listEl = document.getElementById('shows-list');
+  const loadEl = document.getElementById('shows-loading');
+
+  loadEl.style.display = '';
+  listEl.innerHTML = '';
+
+  try {
+    await refreshGcalIndex(force);
+
+    if (gcalIndex.length === 0) {
+      loadEl.style.display = 'none';
+      listEl.innerHTML = '<div style="font-size:13px;color:var(--sage);text-align:center;padding:24px">Nenhum evento cadastrado.</div>';
+      return;
+    }
+
+    const sorted = [...gcalIndex].sort((a, b) => a.date.localeCompare(b.date));
+    const byDate = {};
+    sorted.forEach(item => {
+      if (!byDate[item.date]) byDate[item.date] = [];
+      byDate[item.date].push(item);
+    });
+
+    let html = '';
+    Object.entries(byDate).forEach(([date, items]) => {
+      html += '<div style="margin-bottom:12px">' +
+        '<div style="font-size:10px;font-weight:600;color:var(--sage);letter-spacing:.8px;text-transform:uppercase;padding:4px 0;border-bottom:1px solid rgba(162,123,92,.1);margin-bottom:6px">' +
+        fmtDate(date) + '</div>';
+
+      items.forEach(item => {
+        html += '<div class="ev-viewer-item">' +
+          '<div style="flex:1;min-width:0">' +
+          '<div class="ev-viewer-title">' + esc(item.title || '-') + '</div>' +
+          '<div class="ev-viewer-meta" style="font-family:\'Google Sans Mono\',monospace">id: ' + esc(item.id) + '</div>' +
+          '</div>' +
+          '<div class="ev-viewer-actions">' +
+          '<button data-evid="' + esc(item.id) + '" onclick="deleteCalEvent(this)" class="ev-viewer-btn remove">Remover</button>' +
+          '</div></div>';
+      });
+
+      html += '</div>';
+    });
+
+    loadEl.style.display = 'none';
+    listEl.innerHTML = html;
+  } catch(e) {
+    loadEl.style.display = 'none';
+    listEl.innerHTML = '<div style="font-size:13px;color:#c07070;padding:10px">' + esc(e.message) + '</div>';
+  }
+}
+
 function usePrimaryCalendar() {
   document.getElementById('c-cal').value = 'primary';
   toast('Calendar ID definido para "primary"', 'success');
@@ -1901,6 +1962,7 @@ async function deleteCalEvent(btn) {
     }
     
     btn.closest('.ev-viewer-item').remove();
+    gcalIndex = gcalIndex.filter(item => item.id !== eventId);
     toast('Evento removido', 'success');
   } catch(e) {
     btn.textContent = 'Remover';
