@@ -3041,6 +3041,8 @@ async function crawlIngressoMovies() {
             venue: 'Cinema',
             ticketLink: movieLink,
             sourceUrl: url,
+            poster: item.image || '',
+            genre: '',
             selected: false
           });
         });
@@ -3084,7 +3086,35 @@ async function crawlIngressoMovies() {
     if (movies.length === 0) {
       throw new Error('Nenhum filme encontrado na página. Verifique se o site mudou sua estrutura.');
     }
-    
+
+    barEl.style.width = '80%';
+    labelEl.textContent = 'Buscando gêneros...';
+
+    // Busca o genero na pagina de cada filme (a listagem nao traz esse dado).
+    // Melhor esforco: se falhar para algum filme, so fica sem genero.
+    await Promise.all(movies.map(async mv => {
+      if (!mv.ticketLink || !mv.ticketLink.includes('/filme/')) return;
+      try {
+        const r = await fetch(proxies[1](mv.ticketLink), { signal: AbortSignal.timeout(8000) });
+        if (!r.ok) return;
+        const movieHtml = await r.text();
+        const movieDoc = new DOMParser().parseFromString(movieHtml, 'text/html');
+
+        for (const script of movieDoc.querySelectorAll('script[type="application/ld+json"]')) {
+          let data;
+          try { data = JSON.parse(script.textContent); } catch(e) { continue; }
+          const graph = Array.isArray(data) ? data : (data['@graph'] || [data]);
+          const movieNode = graph.find(n => n && n['@type'] === 'Movie');
+          if (movieNode && movieNode.genre) {
+            mv.genre = Array.isArray(movieNode.genre) ? movieNode.genre.join(', ') : movieNode.genre;
+            break;
+          }
+        }
+      } catch(e) {
+        // sem genero, sem problema
+      }
+    }));
+
     barEl.style.width = '100%';
     labelEl.textContent = 'Concluído!';
     
@@ -3112,12 +3142,14 @@ async function crawlIngressoMovies() {
 function renderMoviesList(movies, container) {
   container.innerHTML = movies.map((mv, idx) => `
     <div class="agent-item" id="movie-item-${idx}" onclick="toggleMovieSelection(${idx})">
+      ${mv.poster ? `<img src="${esc(mv.poster)}" alt="" class="agent-item-poster">` : ''}
       <div class="agent-item-check"></div>
       <div class="agent-item-content">
         <div class="agent-item-title">${esc(mv.title)}</div>
         <div class="agent-item-meta">
           <span>📅 ${fmtDate(mv.date)}</span>
           <span>🎬 Cinema</span>
+          ${mv.genre ? `<span>🏷️ ${esc(mv.genre)}</span>` : ''}
         </div>
       </div>
     </div>
