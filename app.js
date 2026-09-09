@@ -1391,30 +1391,100 @@ function handleTicketLink(link) {
 
 async function handleMovieLink(url) {
   flow.state = 'idle';
-  
-  if (!cfg.openRouterKey) {
-    toast('Configure a chave de API do OpenRouter nas Configurações', 'error');
-    botMsg('OpenRouter não configurado. Veja as Configurações.');
-    return;
-  }
-  
   showTyping();
   botMsg('Extraindo dados do filme...');
   
   try {
     const pageText = await fetchPageText(url);
-    const prompt = 'Extraia dados do filme e retorne SOMENTE JSON valido, sem markdown. ' +
-      'Formato: {"title":"Nome do Filme","date":"YYYY-MM-DD"} ' +
-      'Regras: title deve ser apenas o nome do filme sem cinema/sala; date pode ser null. ' +
-      'URL: ' + url + ' Conteudo: ' + (pageText || '(indisponivel)');
+    let ex = null;
     
-    const txt = await callOpenRouter(prompt);
-    const clean = txt.trim();
-    const match = clean.match(/\{[\s\S]*\}/);
+    // Método 1: Tentar OpenRouter se configurado
+    if (cfg.openRouterKey && pageText) {
+      try {
+        const prompt = 'Extraia dados do filme e retorne SOMENTE JSON valido, sem markdown, sem explicacoes. ' +
+          'Formato: {"title":"Nome do Filme","date":"YYYY-MM-DD"} ' +
+          'Regras: title deve ser apenas o nome do filme sem cinema/sala; date DEVE estar em YYYY-MM-DD (obrigatório). ' +
+          'URL: ' + url + ' Conteudo: ' + pageText;
+        
+        const txt = await callOpenRouter(prompt);
+        const clean = txt.replace(/```json/gi, '').replace(/```/g, '').trim();
+        
+        try {
+          ex = JSON.parse(clean);
+        } catch(e) {
+          const jsonMatch = clean.match(/\{[^{}]*"title"[^{}]*"date"[^{}]*\}/);
+          if (jsonMatch) ex = JSON.parse(jsonMatch[0]);
+        }
+        
+        if (ex && ex.title && ex.date && /^\d{4}-\d{2}-\d{2}$/.test(ex.date)) {
+          console.log('[Movie] Extração OpenRouter bem-sucedida');
+        } else {
+          ex = null;
+          console.log('[Movie] OpenRouter retornou dados inválidos');
+        }
+      } catch(e) {
+        console.log('[Movie] OpenRouter falhou:', e.message);
+        ex = null;
+      }
+    }
     
-    if (!match) throw new Error('Resposta invalida do modelo.');
+    // Método 2: Fallback para extração estruturada
+    if (!ex && pageText) {
+      try {
+        const doc = new DOMParser().parseFromString(pageText, 'text/html');
+        
+        let title = null;
+        const titleSelectors = [
+          'h1[data-testid="event-title"]',
+          'h1.event-title',
+          '[data-testid="event-header"] h1',
+          '.event-header__title',
+          'h1[itemprop="name"]',
+          'h1:first-of-type'
+        ];
+        for (const sel of titleSelectors) {
+          const el = doc.querySelector(sel);
+          if (el && el.textContent.trim().length > 2) {
+            title = el.textContent.trim();
+            break;
+          }
+        }
+        
+        let date = null;
+        const dateSelectors = [
+          '[data-testid="event-date"]',
+          '.event-info__date',
+          '.event-date',
+          'time[datetime]'
+        ];
+        for (const sel of dateSelectors) {
+          const el = doc.querySelector(sel);
+          if (el) {
+            let dateStr = el.getAttribute('datetime') || el.textContent.trim();
+            const dateMatch = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+            if (dateMatch) {
+              date = `${dateMatch[3]}-${String(dateMatch[2]).padStart(2, '0')}-${String(dateMatch[1]).padStart(2, '0')}`;
+              break;
+            } else if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+              date = dateStr.substring(0, 10);
+              break;
+            }
+          }
+        }
+        
+        if (title && date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          ex = {title: title, date: date};
+          console.log('[Movie] Extração estruturada bem-sucedida');
+        }
+      } catch(e) {
+        console.log('[Movie] Extração estruturada falhou:', e.message);
+      }
+    }
     
-    const ex = JSON.parse(match[0]);
+    if (!ex || !ex.title || !ex.date) {
+      throw new Error('Não foi possível extrair os dados do filme do link. Você pode preencher manualmente?');
+    }
+    
     hideTyping();
     
     const ev = {

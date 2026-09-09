@@ -105,11 +105,40 @@ function getPlatformConfig(platform) {
       name: 'Ingresso.com',
       urlRegex: /ingresso\.com\/[^\s]+/i,
       fields: {
-        title: ['.event-header h1', '.event-title h1', 'h1[itemprop="name"]'],
-        date: ['.event-date', '[data-test="event-date"]'],
-        time: ['.event-time', '[data-test="event-time"]'],
-        venue: ['.event-venue', '.localizacao-evento', '[data-test="event-venue"]'],
-        price: ['.price-display', '.ticket-price']
+        title: [
+          'h1[data-testid="event-title"]',
+          'h1.event-title',
+          '[data-testid="event-header"] h1',
+          '.event-header__title',
+          'h1[itemprop="name"]',
+          'h1'
+        ],
+        date: [
+          '[data-testid="event-date"]',
+          '.event-info__date',
+          '.event-date',
+          'time[datetime]',
+          '[data-date]'
+        ],
+        time: [
+          '[data-testid="event-time"]',
+          '.event-info__time',
+          '.event-time',
+          '[data-time]'
+        ],
+        venue: [
+          '[data-testid="event-venue"]',
+          '.event-info__venue',
+          '.event-venue',
+          '.localizacao-evento',
+          '.venue-name'
+        ],
+        price: [
+          '[data-testid="price"]',
+          '.price-display',
+          '.ticket-price',
+          '.product-price'
+        ]
       }
     },
     generic: {
@@ -139,7 +168,7 @@ async function scrapeDirect(url) {
   
   for (const mk of proxies) {
     try {
-      const r = await fetch(mk(url), {signal: AbortSignal.timeout(8000)});
+      const r = await fetch(mk(url), {signal: AbortSignal.timeout(15000)});
       if (!r.ok) continue;
       
       const html = await r.text();
