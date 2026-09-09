@@ -497,22 +497,45 @@ const OR_MODELS = [
 
 async function fetchPageText(url) {
   const proxies = [
+    u => 'https://api.allorigins.win/get?url=' + encodeURIComponent(u),
     u => 'https://corsproxy.io/?' + encodeURIComponent(u),
     u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u),
   ];
   
   for (const mk of proxies) {
     try {
-      const r = await fetch(mk(url), {signal: AbortSignal.timeout(7000)});
-      if (!r.ok) continue;
+      const r = await fetch(mk(url), {signal: AbortSignal.timeout(12000)});
+      if (!r.ok) {
+        console.log('[Fetch] Proxy retornou status:', r.status);
+        continue;
+      }
+      
+      let html = await r.text();
+      
+      // Se for resposta de allorigins, extrair o contents
+      try {
+        const json = JSON.parse(html);
+        if (json.contents) html = json.contents;
+      } catch(e) {}
+      
+      if (!html || html.length < 50) continue;
+      
       const d = document.createElement('div');
-      d.innerHTML = await r.text();
-      d.querySelectorAll('script,style,nav,footer,header,aside,iframe').forEach(el => el.remove());
-      const t = d.innerText.replace(/\s+/g, ' ').trim().substring(0, 6000);
-      if (t.length > 80) return t;
-    } catch(e) {}
+      d.innerHTML = html;
+      d.querySelectorAll('script,style,nav,footer,header,aside,iframe,.ads,.cookie-banner').forEach(el => el.remove());
+      const t = d.innerText.replace(/\s+/g, ' ').trim().substring(0, 8000);
+      
+      if (t.length > 100) {
+        console.log('[Fetch] Sucesso com proxy:', mk.toString().slice(0, 40));
+        return t;
+      }
+    } catch(e) {
+      console.log('[Fetch] Proxy falhou:', e.message);
+    }
   }
-  return '';
+  
+  console.log('[Fetch] Todos os proxies falharam');
+  throw new Error('Não foi possível acessar a página. Tente novamente.');
 }
 
 async function callOpenRouter(prompt) {
@@ -1395,16 +1418,22 @@ async function handleMovieLink(url) {
   botMsg('Extraindo dados do filme...');
   
   try {
-    const pageText = await fetchPageText(url);
+    let pageText = null;
+    try {
+      pageText = await fetchPageText(url);
+    } catch(e) {
+      console.log('[Movie] fetchPageText falhou:', e.message);
+    }
+    
     let ex = null;
     
     // Método 1: Tentar OpenRouter se configurado
-    if (cfg.openRouterKey && pageText) {
+    if (cfg.openRouterKey && pageText && pageText.length > 100) {
       try {
         const prompt = 'Extraia dados do filme e retorne SOMENTE JSON valido, sem markdown, sem explicacoes. ' +
           'Formato: {"title":"Nome do Filme","date":"YYYY-MM-DD"} ' +
           'Regras: title deve ser apenas o nome do filme sem cinema/sala; date DEVE estar em YYYY-MM-DD (obrigatório). ' +
-          'URL: ' + url + ' Conteudo: ' + pageText;
+          'URL: ' + url + ' Conteudo: ' + pageText.substring(0, 5000);
         
         const txt = await callOpenRouter(prompt);
         const clean = txt.replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -1429,7 +1458,7 @@ async function handleMovieLink(url) {
     }
     
     // Método 2: Fallback para extração estruturada
-    if (!ex && pageText) {
+    if (!ex && pageText && pageText.length > 50) {
       try {
         const doc = new DOMParser().parseFromString(pageText, 'text/html');
         
@@ -1481,11 +1510,16 @@ async function handleMovieLink(url) {
       }
     }
     
-    if (!ex || !ex.title || !ex.date) {
-      throw new Error('Não foi possível extrair os dados do filme do link. Você pode preencher manualmente?');
-    }
-    
     hideTyping();
+    
+    if (!ex || !ex.title || !ex.date) {
+      botMsg('Não consegui extrair os dados do filme. Você pode preencher manualmente?', [
+        {label: 'Preencher manualmente', cb: startManual},
+        {label: 'Tentar com outro link', cb: startMovie},
+      ]);
+      flow.state = 'idle';
+      return;
+    }
     
     const ev = {
       type: 'movie',
@@ -1514,10 +1548,12 @@ async function handleMovieLink(url) {
     showMoviePreview(ev);
   } catch(e) {
     hideTyping();
-    botMsg('<strong>Erro:</strong> ' + esc(e.message), [
-      {label: 'Tentar novamente', cb: startMovie},
-      {label: 'Configuracoes', cb: () => openModal('api')},
+    console.error('[Movie] Erro inesperado:', e);
+    botMsg('<strong>Erro inesperado:</strong> ' + esc(e.message || 'Tente novamente'), [
+      {label: 'Tentar com outro link', cb: startMovie},
+      {label: 'Preencher manualmente', cb: startManual},
     ]);
+    flow.state = 'idle';
   }
 }
 
