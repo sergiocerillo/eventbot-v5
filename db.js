@@ -304,10 +304,12 @@ async function updateProfile(updates) {
 }
 
 // Realtime
+let subscriptionChannels = [];
+
 function onEventsChange(callback) {
-  if (!supabaseClient) return;
+  if (!supabaseClient) return null;
   
-  supabaseClient
+  const channel = supabaseClient
     .channel('events-changes')
     .on('postgres_changes', {
       event: '*',
@@ -317,6 +319,20 @@ function onEventsChange(callback) {
       callback(payload);
     })
     .subscribe();
+  
+  subscriptionChannels.push(channel);
+  return channel;
+}
+
+// Cleanup function para desinscrever de todos os canais
+function cleanupSubscriptions() {
+  subscriptionChannels.forEach(channel => {
+    if (channel) {
+      supabaseClient.removeChannel(channel);
+    }
+  });
+  subscriptionChannels = [];
+  console.log('✅ Subscrições limpas');
 }
 
 // Export for use
@@ -334,6 +350,7 @@ if (typeof module !== 'undefined' && module.exports) {
     loadVenues,
     getProfile,
     updateProfile,
-    onEventsChange
+    onEventsChange,
+    cleanupSubscriptions
   };
 }
