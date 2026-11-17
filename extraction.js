@@ -34,6 +34,38 @@ const DEFAULT_EXTRACTOR_CONFIG = {
   platforms: ['sympla', 'eventbrite', 'ingresso', 'ingressos', 'pix']
 };
 
+// ── UTILITY FUNCTIONS ──
+function isUrl(s) {
+  try {
+    return /^https?:\/\//i.test(String(s || '').trim());
+  } catch (e) {
+    return false;
+  }
+}
+
+// OpenRouter callback - será injetado por app.js
+let openRouterCall = null;
+
+function setOpenRouterCallback(fn) {
+  openRouterCall = fn;
+  console.log('[Extractor] OpenRouter callback configurado');
+}
+
+// Função para limitar cache
+function cleanupCache() {
+  const MAX_CACHE_SIZE = 150;
+  if (extractionCache.size > MAX_CACHE_SIZE) {
+    const entriesToDelete = extractionCache.size - MAX_CACHE_SIZE;
+    let deleted = 0;
+    for (const [key, value] of extractionCache.entries()) {
+      if (deleted >= entriesToDelete) break;
+      extractionCache.delete(key);
+      deleted++;
+    }
+    console.log(`[Extractor] Cache limitado (removidos ${deleted} itens)`);
+  }
+}
+
 // ── CACHE SYSTEM ──
 const extractionCache = new Map();
 
@@ -64,6 +96,7 @@ function setCache(url, data) {
     timestamp: Date.now()
   });
   
+  cleanupCache(); // Limitar tamanho de cache
   console.log('[Extractor] Cached:', url);
 }
 
@@ -271,6 +304,11 @@ async function extractStructured(url) {
 
 // Method 3: AI-based extraction (primary method)
 async function extractWithAI(url, context = {}) {
+  // Verificação: DOMParser só funciona em browser
+  if (typeof DOMParser === 'undefined') {
+    throw new Error('extractWithAI() apenas funciona em ambiente browser. Use scrapeDirect() ou manual entry.');
+  }
+  
   const html = await scrapeDirect(url);
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const platform = detectPlatform(url);
@@ -322,7 +360,7 @@ Rules:
 
 Return:`;
   
-  const txt = await callOpenRouter(prompt);
+  const txt = await (openRouterCall ? openRouterCall(prompt) : Promise.reject(new Error('OpenRouter não configurado')));
   const clean = txt.replace(/```json/gi, '').replace(/```/g, '').trim();
   const match = clean.match(/\{[\s\S]*\}/);
   

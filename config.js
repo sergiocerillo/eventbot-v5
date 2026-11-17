@@ -2,19 +2,19 @@
 // SUPABASE CONFIGURATION
 // EventBot v5.0
 // 
-// ⚠️ IMPORTANTE: Substitua as chaves abaixo pelas do seu projeto
-// Acesse: https://supabase.com/dashboard → Settings → API
+// ⚠️ IMPORTANTE: Configure através de .env
+// Nunca commite chaves reais no repositório!
+// Copie .env.example para .env e preencha com seus valores
 // ════════════════════════════════════════════════════════════════
 
 const SUPABASE_CONFIG = {
-  // Substitua pelo seu URL do projeto (ex: https://xyz.supabase.co)
-  url: 'https://sergiocerillo-coding-eventb.supabase.co',
-  
-  // Substitua pela sua anon key (pública)
-  anonKey: 'sb_publishable_Bcs_nHgPwY2AJh9CXBjvHg_Sw5lgu8lsb_secret_Hro5HvWgtzCAI9VTmQFv_Q_XxRxxBAi'
+  // Carregado de .env ou variáveis de ambiente
+  url: process.env.SUPABASE_URL || localStorage.getItem('supabase_url') || '',
+  anonKey: process.env.SUPABASE_ANON_KEY || localStorage.getItem('supabase_anon_key') || '',
+  devMode: process.env.DEV_MODE === 'true' || !process.env.SUPABASE_URL
 };
 
 // Validação básica
-if (!SUPABASE_CONFIG.url || !SUPABASE_CONFIG.anonKey) {
-  console.error('❌ config.js: URL ou anonKey não definidos!');
+if (!SUPABASE_CONFIG.devMode && (!SUPABASE_CONFIG.url || !SUPABASE_CONFIG.anonKey)) {
+  console.warn('⚠️ config.js: Configure SUPABASE_URL e SUPABASE_ANON_KEY via .env');
 }

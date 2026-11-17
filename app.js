@@ -69,16 +69,27 @@ let selectedEventNum = null;
 let duplicateCache = {};
 
 // ── BOOT ──
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
   loadConfig();
+  initializeExtractor();  // Injetar callback do OpenRouter
   loadVenues();
   loadHist();
   renderHist();
   loadGapi();
   setupTextarea();
   setupKeyboardShortcuts();
-  setTimeout(welcome, 380);
+  await welcome();
 });
+
+function initializeExtractor() {
+  // Injetar callback de OpenRouter no extraction.js
+  if (typeof setOpenRouterCallback === 'function') {
+    setOpenRouterCallback(callOpenRouter);
+    console.log('[App] Extractor inicializado com callback de OpenRouter');
+  } else {
+    console.warn('[App] setOpenRouterCallback não disponível em extraction.js');
+  }
+}
 
 function loadConfig() {
   try {
@@ -543,45 +554,78 @@ async function callOpenRouter(prompt) {
     throw new Error('Configure a chave de API do OpenRouter nas Configurações.');
   }
   
+  const MAX_RETRIES = 3;
+  const BASE_DELAY = 1000; // 1 segundo
+  
   for (const model of OR_MODELS) {
-    try {
-      const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + cfg.openRouterKey,
-          'HTTP-Referer': window.location.origin,
-          'X-Title': 'EventBot'
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            {
-              role: 'system',
-              content: 'Você é um extrator de dados de eventos musicais do Brasil. Responda SOMENTE com JSON válido, sem markdown.'
-            },
-            {role: 'user', content: prompt}
-          ],
-          max_tokens: 400,
-          temperature: 0.1
-        }),
-      });
-      
-      const data = await r.json();
-      
-      if (!r.ok) {
-        const msg = data?.error?.message || 'HTTP ' + r.status;
-        if (r.status === 429 || r.status === 404 || msg.includes('endpoint') || msg.includes('quota')) {
-          continue;
+    let lastError = null;
+    
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + cfg.openRouterKey,
+            'HTTP-Referer': window.location.origin,
+            'X-Title': 'EventBot'
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              {
+                role: 'system',
+                content: 'Você é um extrator de dados de eventos musicais do Brasil. Responda SOMENTE com JSON válido, sem markdown.'
+              },
+              {role: 'user', content: prompt}
+            ],
+            max_tokens: 400,
+            temperature: 0.1
+          }),
+        });
+        
+        const data = await r.json();
+        
+        if (!r.ok) {
+          const msg = data?.error?.message || 'HTTP ' + r.status;
+          
+          // Rate limit: aplicar backoff exponencial
+          if (r.status === 429) {
+            const delay = BASE_DELAY * Math.pow(2, attempt);
+            console.warn(`[OpenRouter] Rate limit (429). Aguardando ${delay}ms antes de retry...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          
+          // Erros transitórios
+          if (r.status === 404 || msg.includes('endpoint') || msg.includes('quota')) {
+            lastError = new Error(msg);
+            continue;
+          }
+          
+          throw new Error(msg);
         }
-        throw new Error(msg);
+        
+        const txt = data.choices?.[0]?.message?.content;
+        if (txt) return txt;
+        
+        throw new Error('Resposta vazia do modelo');
+      } catch(e) {
+        lastError = e;
+        
+        // Skip transient errors for next model
+        if (e.message.includes('endpoint') || e.message.includes('quota')) {
+          console.warn(`[OpenRouter] ${model}: ${e.message}`);
+          break;
+        }
+        
+        // Retry se não for erro fatal
+        if (attempt < MAX_RETRIES - 1) {
+          const delay = BASE_DELAY * Math.pow(2, attempt);
+          console.warn(`[OpenRouter] Retry ${attempt + 1}/${MAX_RETRIES} após ${delay}ms: ${e.message}`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
       }
-      
-      const txt = data.choices?.[0]?.message?.content;
-      if (txt) return txt;
-    } catch(e) {
-      if (e.message.includes('endpoint') || e.message.includes('quota')) continue;
-      throw e;
     }
   }
   
@@ -1085,54 +1129,54 @@ function showPreview(ev) {
 // CONVERSATION FLOWS
 // ════════════════════════════════════════════════════════════════
 
-function welcome() {
-  // Alert if Google OAuth is not configured properly
-  if (!cfg.serviceAccount?.private_key && !cfg.clientId) {
-    botMsg('⚠️ <strong>Atenção:</strong> Você precisa configurar o Google OAuth para usar o sistema de login. <br>Clique em "Configurações" no menu lateral e configure seu Client ID.', [
-      {label: 'Configurar', cb: () => openModal('cfg')}
-    ]);
-  } else if (!cfg.serviceAccount?.private_key) {
-    // Try to restore session
-    tryRestoreSession().then(() => {
-      botMsg('Olá! 👋 Como quer cadastrar?', [
-        {label: 'Show por link', cb: startLink},
-        {label: 'Show manual', cb: startManual},
-        {label: 'Filme', cb: startMovie},
-        {label: 'Lote de links', cb: openBatchModal},
-      ]);
-    }).catch(() => {
-      botMsg('Olá! 👋 Como quer cadastrar? (Login não configurado)', [
-        {label: 'Show por link', cb: startLink},
-        {label: 'Show manual', cb: startManual},
-        {label: 'Configurar Google', cb: () => openModal('cfg')},
-        {label: 'Lote de links', cb: openBatchModal},
-      ]);
-    });
-    return;
-  }
-  
-  if (cfg.serviceAccount?.private_key) {
-    getSAToken().then(tok => {
-      if (tok) {
-        accessToken = tok;
-        setSt(true, 'Service Account');
-      }
-    });
-  }
-  
+
+async function welcome() {
   try {
+    // Alert if Google OAuth is not configured properly
+    if (!cfg.serviceAccount?.private_key && !cfg.clientId) {
+      botMsg('⚠️ <strong>Atenção:</strong> Você precisa configurar o Google OAuth para usar o sistema de login. <br>Clique em "Configurações" no menu lateral e configure seu Client ID.', [
+        {label: 'Configurar', cb: () => openModal('cfg')}
+      ]);
+    } else if (!cfg.serviceAccount?.private_key) {
+      // Try to restore session
+      try {
+        await tryRestoreSession();
+        botMsg('Olá! 👋 Como quer cadastrar?', [
+          {label: 'Show por link', cb: startLink},
+          {label: 'Show manual', cb: startManual},
+          {label: 'Filme', cb: startMovie},
+          {label: 'Lote de links', cb: openBatchModal},
+        ]);
+      } catch (e) {
+        console.warn('Session restore failed:', e.message);
+        botMsg('Olá! 👋 Como quer cadastrar? (Login não configurado)', [
+          {label: 'Show por link', cb: startLink},
+          {label: 'Show manual', cb: startManual},
+          {label: 'Configurar Google', cb: () => openModal('cfg')},
+          {label: 'Lote de links', cb: openBatchModal},
+        ]);
+      }
+      return;
+    }
+    
+    if (cfg.serviceAccount?.private_key) {
+      try {
+        const tok = await getSAToken();
+        if (tok) {
+          accessToken = tok;
+          setSt(true, 'Service Account');
+        }
+      } catch (e) {
+        console.warn('SA token error:', e.message);
+      }
+    }
+    
+    // Initialize UI
     initDarkMode();
-    // initTheme, initFontSize, initv4 removed for v5.0
-  } catch(e) {
-    console.log('Init error:', e.message);
+  } catch (e) {
+    console.error('Welcome error:', e.message);
+    botMsg('❌ Erro ao inicializar. Tente recarregar a página.');
   }
-  
-  botMsg('Olá! 👋 Como quer cadastrar?', [
-    {label: 'Show por link', cb: startLink},
-    {label: 'Show manual', cb: startManual},
-    {label: 'Filme', cb: startMovie},
-    {label: 'Lote de links', cb: openBatchModal},
-  ]);
 }
 
 function askShowHow() {
