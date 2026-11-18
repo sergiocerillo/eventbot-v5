@@ -3,146 +3,142 @@
 // Sistema de Gerenciamento de Eventos com Google Calendar Sync
 // ════════════════════════════════════════════════════════════════
 
-// ── STATE ──
+// ── GLOBAL STATE ──
 let events = [];
 let venues = [];
 let artists = {};
 let darkMode = true;
 let currentTab = 'home';
-let currentFilter = 'all'; // 'all', 'shows', 'movies'
+let currentFilter = 'all';
 let currentVenueFilter = null;
 let currentArtistFilter = null;
 
 // Google API State
-let gapiLoaded = false;
-let gisLoaded = false;
+let gapiInited = false;
+let gisInited = false;
 let tokenClient = null;
 let accessToken = null;
-let isSignedIn = false;
 
-// Chatbot draggable state
+// Chatbot drag/resize state
 let isDragging = false;
 let isResizing = false;
 let dragStartX = 0;
 let dragStartY = 0;
-let chatbotX = 0;
-let chatbotY = 0;
 let resizeStartWidth = 0;
 let resizeStartHeight = 0;
 
-// ── INIT ──
-window.addEventListener('load', async () => {
-  loadConfig();
-  loadEvents();
-  loadVenues();
-  initTheme();
-  setupNavigation();
-  setupChatbot();
-  updateLoginButton(); // Show loading state immediately
-  initGoogleAPI();
-  renderDashboard();
-  welcome();
-});
-
 // ── CONFIG ──
-function loadConfig() {
-  try {
-    const saved = JSON.parse(localStorage.getItem('eventbot_config') || '{}');
-    Object.assign(cfg, saved);
-  } catch (e) {}
-}
-
-let cfg = {
+const cfg = {
   clientId: '483752309274-of13qhrd0udioaen2dvf8cno2egimsvq.apps.googleusercontent.com',
   apiKey: 'AIzaSyBHopQnhjbP569baNBOxAMcHAnN-faQnm8',
   calendarId: '39fbbd9c5f4505e1cb6cd6e61371d3563d8cc9d5fff677fc87e7b32abe14f767@group.calendar.google.com',
-  openRouterKey: '',
-  serviceAccount: null,
 };
 
-// ── GOOGLE CALENDAR API ──
-let apiLoadAttempts = 0;
-const MAX_API_LOAD_ATTEMPTS = 20; // 20 tentativas = 10 segundos
-
-function initGoogleAPI() {
-  // Load Google API scripts
-  loadScript('https://apis.google.com/js/api.js', () => {
-    gapi.load('client', initGapiClient);
-  });
+// ── INITIALIZATION ──
+window.addEventListener('DOMContentLoaded', async () => {
+  console.log('🚀 Iniciando EventBot Dashboard...');
   
-  loadScript('https://accounts.google.com/gsi/client', () => {
-    initGISClient();
-  });
+  loadData();
+  initTheme();
+  setupNavigation();
+  setupChatbot();
+  setupFilterButtons();
+  renderDashboard();
   
-  // Check if APIs loaded successfully after timeout
-  checkAPILoadStatus();
-}
-
-function checkAPILoadStatus() {
-  const checkInterval = setInterval(() => {
-    apiLoadAttempts++;
-    
-    console.log(`🔍 Verificando APIs (tentativa ${apiLoadAttempts}/${MAX_API_LOAD_ATTEMPTS}): GAPI=${gapiLoaded}, GIS=${gisLoaded}`);
-    
-    if (gapiLoaded && gisLoaded) {
-      clearInterval(checkInterval);
-      console.log('✅ Todas as APIs do Google carregadas com sucesso');
-      chatMessage('bot', '✅ Google API pronto! Você pode fazer login agora.');
-      return;
-    }
-    
-    if (apiLoadAttempts >= MAX_API_LOAD_ATTEMPTS) {
-      clearInterval(checkInterval);
-      console.warn('⚠️ Timeout ao carregar APIs do Google. Recarregue a página.');
-      chatMessage('bot', '⚠️ Erro ao carregar Google API. Por favor, recarregue a página.');
-      
-      const btn = document.getElementById('btn-google-login');
-      if (btn) {
-        btn.textContent = '❌ Erro - Recarregue';
-        btn.disabled = true;
-      }
-    }
+  // Initialize Google API
+  await initGoogleAPI();
+  
+  // Welcome message
+  setTimeout(() => {
+    chatMessage('bot', '👋 Bem-vindo ao EventBot! Digite "ajuda" para ver os comandos disponíveis.');
   }, 500);
-}
+});
 
-function loadScript(src, callback) {
-  console.log(`🔄 Carregando: ${src}`);
-  const script = document.createElement('script');
-  script.src = src;
-  script.onload = () => {
-    console.log(`✅ Carregado: ${src}`);
-    if (callback) callback();
-  };
-  script.onerror = () => {
-    console.error(`❌ Falha ao carregar: ${src}`);
-    chatMessage('bot', `❌ Erro ao carregar ${src.includes('gsi') ? 'Google Identity' : 'Google API'}. Verifique sua conexão.`);
-  };
-  document.head.appendChild(script);
-}
-
-async function initGapiClient() {
-  console.log('🔄 Inicializando GAPI Client...');
+// ── DATA MANAGEMENT ──
+function loadData() {
+  // Load events
   try {
+    const saved = localStorage.getItem('eventbot_events');
+    events = saved ? JSON.parse(saved) : [];
+  } catch (e) {
+    console.error('Erro ao carregar eventos:', e);
+    events = [];
+  }
+  
+  // Load venues
+  try {
+    const saved = localStorage.getItem('eventbot_venues');
+    venues = saved ? JSON.parse(saved) : getDefaultVenues();
+  } catch (e) {
+    venues = getDefaultVenues();
+  }
+  
+  // Extract artists
+  extractArtists();
+  
+  console.log(`📊 Dados carregados: ${events.length} eventos, ${venues.length} locais`);
+}
+
+function saveEvents() {
+  try {
+    localStorage.setItem('eventbot_events', JSON.stringify(events));
+  } catch (e) {
+    console.error('Erro ao salvar eventos:', e);
+  }
+}
+
+function extractArtists() {
+  artists = {};
+  events.forEach(ev => {
+    const title = (ev.title || 'Sem nome').trim();
+    if (title) {
+      artists[title] = (artists[title] || 0) + 1;
+    }
+  });
+}
+
+function getDefaultVenues() {
+  return [
+    {name:'Allianz Parque',addr:'Av. Francisco Matarazzo, 1705 - Água Branca, São Paulo - SP'},
+    {name:'Audio',addr:'Av. Francisco Matarazzo, 694 - Barra Funda, São Paulo - SP'},
+    {name:'Autódromo de Interlagos',addr:'Av. Sen. Teotonio Vilela, 261 - Jardim Malia I, São Paulo - SP'},
+    {name:'Burning House',addr:'Av. Santa Marina, 247 - Água Branca, São Paulo - SP'},
+    {name:'Carioca Club',addr:'Rua Cardeal Arcoverde, 2899 - Pinheiros, São Paulo - SP'},
+    {name:'Cine Joia',addr:'Praça Carlos Gomes, 82 - Liberdade, São Paulo - SP'},
+    {name:'Espaço Unimed',addr:'R. Tagipuru, 795 - Barra Funda, São Paulo - SP'},
+    {name:'Tokio Marine Hall',addr:'R. Bragança Paulista, 1281 - Várzea de Baixo, São Paulo - SP'},
+    {name:'Vibra São Paulo',addr:'Av. das Nações Unidas, 17955 - Vila Almeida, São Paulo - SP'},
+  ];
+}
+
+// ── GOOGLE CALENDAR API ──
+async function initGoogleAPI() {
+  console.log('🔄 Carregando Google APIs...');
+  updateLoginButton('loading');
+  
+  try {
+    // Load GAPI
+    await loadScript('https://apis.google.com/js/api.js');
+    await new Promise((resolve) => gapi.load('client', resolve));
     await gapi.client.init({
       apiKey: cfg.apiKey,
       discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest'],
     });
-    gapiLoaded = true;
-    console.log('✅ GAPI Client inicializado com sucesso');
-    updateLoginButton();
-  } catch (e) {
-    console.error('❌ Erro ao inicializar GAPI:', e);
-    chatMessage('bot', `❌ Erro GAPI: ${e.message}`);
-  }
-}
-
-function initGISClient() {
-  console.log('🔄 Inicializando GIS Client...');
-  try {
-    if (typeof google === 'undefined' || !google.accounts) {
-      console.error('❌ google.accounts não está disponível');
-      setTimeout(initGISClient, 500); // Retry
-      return;
+    gapiInited = true;
+    console.log('✅ GAPI inicializado');
+    
+    // Load GIS
+    await loadScript('https://accounts.google.com/gsi/client');
+    
+    // Wait for google.accounts to be available
+    let attempts = 0;
+    while (!window.google?.accounts && attempts < 50) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      attempts++;
+    }
+    
+    if (!window.google?.accounts) {
+      throw new Error('google.accounts não carregou');
     }
     
     tokenClient = google.accounts.oauth2.initTokenClient({
@@ -150,93 +146,96 @@ function initGISClient() {
       scope: 'https://www.googleapis.com/auth/calendar.readonly',
       callback: handleAuthResponse,
     });
-    gisLoaded = true;
-    console.log('✅ GIS Client inicializado com sucesso');
-    updateLoginButton();
-  } catch (e) {
-    console.error('❌ Erro ao inicializar GIS:', e);
-    chatMessage('bot', `❌ Erro GIS: ${e.message}`);
+    gisInited = true;
+    console.log('✅ GIS inicializado');
+    
+    updateLoginButton('ready');
+    chatMessage('bot', '✅ Google API pronto! Clique em "Login Google" para conectar.');
+  } catch (error) {
+    console.error('❌ Erro ao inicializar Google API:', error);
+    updateLoginButton('error');
+    chatMessage('bot', `❌ Erro ao carregar Google API: ${error.message}`);
+  }
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error(`Falha ao carregar ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
+function updateLoginButton(state) {
+  const btn = document.getElementById('btn-google-login');
+  if (!btn) return;
+  
+  switch (state) {
+    case 'loading':
+      btn.textContent = '⏳ Carregando...';
+      btn.disabled = true;
+      btn.style.opacity = '0.6';
+      break;
+    case 'ready':
+      btn.textContent = '🔐 Login Google';
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.style.background = '';
+      break;
+    case 'connected':
+      btn.textContent = '✓ Conectado';
+      btn.disabled = false;
+      btn.style.background = 'linear-gradient(135deg, #4CAF50, #45a049)';
+      break;
+    case 'error':
+      btn.textContent = '❌ Erro';
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+      break;
+  }
+}
+
+function handleLoginClick() {
+  if (!gapiInited || !gisInited) {
+    chatMessage('bot', '⚠️ Google API ainda não está pronto. Aguarde alguns segundos.');
+    return;
+  }
+  
+  if (accessToken) {
+    handleSignOut();
+  } else {
+    tokenClient.requestAccessToken();
   }
 }
 
 function handleAuthResponse(response) {
   if (response.error) {
-    console.error('❌ Erro de autenticação:', response.error);
+    console.error('Erro de autenticação:', response.error);
+    chatMessage('bot', `❌ Erro: ${response.error}`);
     return;
   }
   
   accessToken = response.access_token;
-  isSignedIn = true;
-  updateLoginButton();
+  updateLoginButton('connected');
+  chatMessage('bot', '✅ Login realizado! Sincronizando eventos...');
+  
   syncCalendarEvents();
-  chatMessage('bot', '✅ Login realizado com sucesso! Sincronizando eventos...');
-}
-
-function updateLoginButton() {
-  const btn = document.getElementById('btn-google-login');
-  if (!btn) return;
-  
-  if (isSignedIn) {
-    btn.textContent = '✓ Conectado';
-    btn.style.background = 'linear-gradient(135deg, #4CAF50, #45a049)';
-    btn.disabled = false;
-  } else if (gapiLoaded && gisLoaded) {
-    btn.textContent = '🔐 Login Google';
-    btn.style.background = '';
-    btn.disabled = false;
-  } else {
-    btn.textContent = '⏳ Carregando...';
-    btn.style.opacity = '0.6';
-    btn.disabled = true;
-  }
-}
-
-async function handleLoginClick() {
-  const btn = document.getElementById('btn-google-login');
-  
-  if (!gapiLoaded || !gisLoaded) {
-    const missingAPIs = [];
-    if (!gapiLoaded) missingAPIs.push('GAPI');
-    if (!gisLoaded) missingAPIs.push('GIS');
-    
-    chatMessage('bot', `⚠️ Aguardando carregar: ${missingAPIs.join(', ')}. Tente novamente em alguns segundos.`);
-    
-    if (btn) {
-      btn.textContent = '⏳ Carregando API...';
-      btn.disabled = true;
-    }
-    return;
-  }
-  
-  if (isSignedIn) {
-    handleSignOut();
-    return;
-  }
-  
-  // Request token
-  if (btn) {
-    btn.textContent = '🔄 Aguardando autorização...';
-    btn.disabled = true;
-  }
-  
-  tokenClient.requestAccessToken();
 }
 
 function handleSignOut() {
   if (accessToken) {
-    google.accounts.oauth2.revoke(accessToken, () => {
-      console.log('Token revogado');
-    });
+    google.accounts.oauth2.revoke(accessToken);
+    accessToken = null;
   }
-  accessToken = null;
-  isSignedIn = false;
-  updateLoginButton();
+  updateLoginButton('ready');
   chatMessage('bot', '👋 Desconectado do Google Calendar');
 }
 
 async function syncCalendarEvents() {
-  if (!isSignedIn || !cfg.calendarId) {
-    chatMessage('bot', '⚠️ Configure o Calendar ID nas configurações primeiro');
+  if (!accessToken) {
+    chatMessage('bot', '⚠️ Faça login primeiro');
     return;
   }
   
@@ -250,34 +249,44 @@ async function syncCalendarEvents() {
     });
     
     const calendarEvents = response.result.items || [];
-    chatMessage('bot', `📅 ${calendarEvents.length} eventos encontrados no Google Calendar`);
     
-    // Convert calendar events to our format
-    const convertedEvents = calendarEvents.map(ev => convertCalendarEvent(ev));
+    if (calendarEvents.length === 0) {
+      chatMessage('bot', '📅 Nenhum evento encontrado no calendário');
+      return;
+    }
     
-    // Merge with existing events
-    events = [...events, ...convertedEvents];
+    chatMessage('bot', `📅 ${calendarEvents.length} eventos encontrados. Importando...`);
     
-    // Remove duplicates
-    events = events.filter((ev, index, self) =>
-      index === self.findIndex(e => e.id === ev.id || (e.title === ev.title && e.date === ev.date))
-    );
+    // Convert and merge events
+    const newEvents = calendarEvents.map(convertCalendarEvent);
     
-    // Save and render
-    localStorage.setItem('eventbot_events', JSON.stringify(events));
+    // Add only new events (avoid duplicates)
+    let addedCount = 0;
+    newEvents.forEach(newEv => {
+      const exists = events.some(ev => 
+        ev.id === newEv.id || 
+        (ev.title === newEv.title && ev.date === newEv.date)
+      );
+      if (!exists) {
+        events.push(newEv);
+        addedCount++;
+      }
+    });
+    
+    saveEvents();
     extractArtists();
     renderDashboard();
     
-    chatMessage('bot', `✅ ${convertedEvents.length} eventos sincronizados!`);
-  } catch (e) {
-    console.error('❌ Erro ao sincronizar:', e);
-    chatMessage('bot', '❌ Erro ao sincronizar eventos. Verifique suas permissões.');
+    chatMessage('bot', `✅ ${addedCount} novos eventos adicionados!`);
+  } catch (error) {
+    console.error('Erro ao sincronizar:', error);
+    chatMessage('bot', `❌ Erro: ${error.message}`);
   }
 }
 
 function convertCalendarEvent(calEvent) {
-  const startDate = calEvent.start.dateTime || calEvent.start.date;
-  const date = new Date(startDate);
+  const startDate = calEvent.start?.dateTime || calEvent.start?.date;
+  const date = startDate ? new Date(startDate) : new Date();
   
   return {
     id: calEvent.id,
@@ -288,36 +297,30 @@ function convertCalendarEvent(calEvent) {
     venue_addr: calEvent.location || '',
     ticketLink: extractLink(calEvent.description || ''),
     desc: calEvent.description || '',
-    price: '',
+    type: detectEventType(calEvent.summary || ''),
     platform: 'google-calendar',
-    type: detectEventType(calEvent.summary || '')
   };
 }
 
 function extractVenue(text) {
-  const venueNames = venues.map(v => v.name);
-  for (const venueName of venueNames) {
-    if (text.toLowerCase().includes(venueName.toLowerCase())) {
-      return venueName;
+  const lowerText = text.toLowerCase();
+  for (const venue of venues) {
+    if (lowerText.includes(venue.name.toLowerCase())) {
+      return venue.name;
     }
   }
   return 'Local não especificado';
 }
 
 function extractLink(text) {
-  const urlMatch = text.match(/https?:\/\/[^\s]+/);
-  return urlMatch ? urlMatch[0] : '';
+  const match = text.match(/https?:\/\/[^\s<>"]+/);
+  return match ? match[0] : '';
 }
 
 function detectEventType(title) {
   const movieKeywords = ['filme', 'cinema', 'sessão', 'exibição'];
-  const titleLower = title.toLowerCase();
-  
-  for (const keyword of movieKeywords) {
-    if (titleLower.includes(keyword)) return 'movie';
-  }
-  
-  return 'show';
+  const lowerTitle = title.toLowerCase();
+  return movieKeywords.some(kw => lowerTitle.includes(kw)) ? 'movie' : 'show';
 }
 
 // ── THEME ──
@@ -328,11 +331,7 @@ function initTheme() {
 }
 
 function applyTheme() {
-  if (!darkMode) {
-    document.body.classList.add('light-mode');
-  } else {
-    document.body.classList.remove('light-mode');
-  }
+  document.body.classList.toggle('light-mode', !darkMode);
   const btn = document.getElementById('btn-theme');
   if (btn) btn.textContent = darkMode ? '☀' : '🌙';
 }
@@ -343,66 +342,30 @@ function toggleTheme() {
   applyTheme();
 }
 
-// ── DATA LOADING ──
-function loadEvents() {
-  try {
-    const saved = localStorage.getItem('eventbot_events');
-    events = saved ? JSON.parse(saved) : [];
-  } catch (e) {
-    events = [];
-  }
-  
-  // Extrair artistas dos eventos
-  extractArtists();
-}
-
-function loadVenues() {
-  try {
-    const saved = localStorage.getItem('eventbot_venues');
-    venues = saved ? JSON.parse(saved) : getDefaultVenues();
-  } catch (e) {
-    venues = getDefaultVenues();
-  }
-}
-
-function getDefaultVenues() {
-  return [
-    {name:'Allianz Parque',addr:'Av. Francisco Matarazzo, 1705 - Água Branca, São Paulo - SP'},
-    {name:'Audio',addr:'Av. Francisco Matarazzo, 694 - Barra Funda, São Paulo - SP'},
-    {name:'Autódromo de Interlagos',addr:'Av. Sen. Teotonio Vilela, 261 - Jardim Malia I, São Paulo - SP'},
-    {name:'Burning House',addr:'Av. Santa Marina, 247 - Água Branca, São Paulo - SP'},
-    {name:'Carioca Club Pinheiros',addr:'Rua Cardeal Arcoverde, 2899 - Pinheiros, São Paulo - SP'},
-    {name:'Cine Joia',addr:'Praça Carlos Gomes, 82 - Liberdade, São Paulo - SP'},
-    {name:'City Lights Music Hall',addr:'R. Padre Garcia Velho, 61 - Pinheiros, São Paulo - SP'},
-    {name:'Espaço Unimed',addr:'R. Tagipuru, 795 - Barra Funda, São Paulo - SP'},
-    {name:'Espaço Usine',addr:'R. Barra Funda, 973 - Barra Funda, São Paulo - SP'},
-    {name:'Estádio do Morumbi',addr:'Praça Roberto Gomes Pedrosa, 1 - Morumbi, São Paulo - SP'},
-    {name:'Fabrique Club',addr:'R. Barra Funda, 1071 - Barra Funda, São Paulo - SP'},
-    {name:'Fenda 315',addr:'Rua Doutor Cândido Espinheira, 315 - Perdizes, São Paulo - SP'},
-    {name:'Hangar 110',addr:'R. Rodolfo Miranda, 110 - Bom Retiro, São Paulo - SP'},
-    {name:'La Iglesia',addr:'Rua João Moura, 515 - Galpão 06, São Paulo - SP'},
-    {name:'Manifesto',addr:'Rua Ramos Batista, 207 - Vila Olímpia, São Paulo - SP'},
-    {name:'Memorial da América Latina',addr:'Av. Mario de Andrade, 664 - Barra Funda, São Paulo - SP'},
-    {name:'Red Star Studios',addr:'R. Teodoro Sampaio, 462 - Pinheiros, São Paulo - SP'},
-    {name:'Sesc Belenzinho',addr:'R. Padre Adelino, 1000 - Belenzinho, São Paulo - SP'},
-    {name:'Sesc Bom Retiro',addr:'Alameda Nothmann, 185 - Campos Elísios, São Paulo - SP'},
-    {name:'Suhai Music Hall',addr:'Av. das Nações Unidas, 22540 - Jurubatuba, São Paulo - SP'},
-    {name:'Terra SP',addr:'Av. Salim Antonio Curiati, 160 - Campo Grande, São Paulo - SP'},
-    {name:'Tokio Marine Hall',addr:'R. Bragança Paulista, 1281 - Várzea de Baixo, São Paulo - SP'},
-    {name:'Vibra São Paulo',addr:'Av. das Nações Unidas, 17955 - Vila Almeida, São Paulo - SP'},
-    {name:'Vip Station',addr:'R. Gibraltar, 346 - Santo Amaro, São Paulo - SP'},
-  ];
-}
-
-function extractArtists() {
-  artists = {};
-  events.forEach(ev => {
-    const title = (ev.title || 'Sem artista').toLowerCase();
-    artists[title] = (artists[title] || 0) + 1;
+// ── FILTERS ──
+function setupFilterButtons() {
+  const filterBtns = document.querySelectorAll('.filter-btn');
+  filterBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const filterType = btn.dataset.filter;
+      
+      if (filterType === 'reset') {
+        resetFilters();
+      } else {
+        applyFilter('type', filterType);
+      }
+      
+      // Update active state
+      filterBtns.forEach(b => b.classList.remove('active'));
+      if (filterType !== 'reset') {
+        btn.classList.add('active');
+      } else {
+        document.querySelector('[data-filter="all"]')?.classList.add('active');
+      }
+    });
   });
 }
 
-// ── FILTERS ──
 function applyFilter(filterType, value) {
   if (filterType === 'type') {
     currentFilter = value;
@@ -413,30 +376,6 @@ function applyFilter(filterType, value) {
   }
   
   renderEvents();
-  chatMessage('bot', `🔍 Filtro aplicado: ${value}`);
-}
-
-function getFilteredEvents() {
-  let filtered = [...events];
-  
-  // Filter by type (shows, movies, all)
-  if (currentFilter === 'shows') {
-    filtered = filtered.filter(ev => ev.type !== 'movie');
-  } else if (currentFilter === 'movies') {
-    filtered = filtered.filter(ev => ev.type === 'movie');
-  }
-  
-  // Filter by venue
-  if (currentVenueFilter && currentVenueFilter !== 'all') {
-    filtered = filtered.filter(ev => ev.venue === currentVenueFilter);
-  }
-  
-  // Filter by artist
-  if (currentArtistFilter && currentArtistFilter !== 'all') {
-    filtered = filtered.filter(ev => ev.title.toLowerCase() === currentArtistFilter.toLowerCase());
-  }
-  
-  return filtered;
 }
 
 function resetFilters() {
@@ -444,7 +383,27 @@ function resetFilters() {
   currentVenueFilter = null;
   currentArtistFilter = null;
   renderEvents();
-  chatMessage('bot', '🔄 Filtros resetados');
+  chatMessage('bot', '� Filtros resetados');
+}
+
+function getFilteredEvents() {
+  let filtered = [...events];
+  
+  if (currentFilter === 'shows') {
+    filtered = filtered.filter(ev => ev.type !== 'movie');
+  } else if (currentFilter === 'movies') {
+    filtered = filtered.filter(ev => ev.type === 'movie');
+  }
+  
+  if (currentVenueFilter) {
+    filtered = filtered.filter(ev => ev.venue === currentVenueFilter);
+  }
+  
+  if (currentArtistFilter) {
+    filtered = filtered.filter(ev => ev.title === currentArtistFilter);
+  }
+  
+  return filtered;
 }
 
 // ── NAVIGATION ──
@@ -452,41 +411,35 @@ function setupNavigation() {
   const tabs = document.querySelectorAll('.nav-tab');
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
-      const tabName = tab.dataset.tab;
-      switchTab(tabName);
+      switchTab(tab.dataset.tab);
     });
   });
 
   document.getElementById('btn-theme')?.addEventListener('click', toggleTheme);
-  document.getElementById('btn-settings')?.addEventListener('click', openSettings);
+  document.getElementById('btn-google-login')?.addEventListener('click', handleLoginClick);
 }
 
 function switchTab(tabName) {
   currentTab = tabName;
   
-  // Update active tab button
+  // Update buttons
   document.querySelectorAll('.nav-tab').forEach(tab => {
     tab.classList.toggle('active', tab.dataset.tab === tabName);
   });
   
-  // Hide all tabs
-  document.getElementById('home-tab')?.classList.add('hidden');
-  document.getElementById('venues-tab')?.classList.add('hidden');
-  document.getElementById('artists-tab')?.classList.add('hidden');
+  // Hide all content
+  ['home-tab', 'venues-tab', 'artists-tab'].forEach(id => {
+    document.getElementById(id)?.classList.add('hidden');
+  });
   
-  // Show selected tab
-  const tabEl = document.getElementById(`${tabName}-tab`);
-  if (tabEl) {
-    tabEl.classList.remove('hidden');
-    renderTab(tabName);
-  }
-}
-
-function renderTab(tabName) {
-  if (tabName === 'venues') {
-    renderVenues();
-  } else if (tabName === 'artists') {
-    renderArtists();
+  // Show selected content
+  const tab = document.getElementById(`${tabName}-tab`);
+  if (tab) {
+    tab.classList.remove('hidden');
+    
+    // Render specific tab content
+    if (tabName === 'venues') renderVenues();
+    if (tabName === 'artists') renderArtists();
   }
 }
 
@@ -495,43 +448,64 @@ function renderDashboard() {
   renderStats();
   renderEvents();
   renderVenues();
+  renderArtists();
 }
 
 function renderStats() {
-  document.getElementById('stat-events').textContent = events.length;
-  document.getElementById('stat-venues').textContent = venues.length;
-  document.getElementById('stat-artists').textContent = Object.keys(artists).length;
+  const statEls = {
+    events: document.getElementById('stat-events'),
+    venues: document.getElementById('stat-venues'),
+    artists: document.getElementById('stat-artists'),
+    next: document.getElementById('stat-next'),
+  };
   
-  // Next event
-  const nextEvent = getNextEvent();
-  if (nextEvent) {
-    const date = new Date(nextEvent.date);
-    document.getElementById('stat-next').textContent = date.toLocaleDateString('pt-BR', { month: 'short', day: 'numeric' });
+  if (statEls.events) statEls.events.textContent = events.length;
+  if (statEls.venues) statEls.venues.textContent = venues.length;
+  if (statEls.artists) statEls.artists.textContent = Object.keys(artists).length;
+  
+  if (statEls.next) {
+    const nextEvent = getNextEvent();
+    if (nextEvent) {
+      const date = new Date(nextEvent.date);
+      statEls.next.textContent = date.toLocaleDateString('pt-BR', { 
+        month: 'short', 
+        day: 'numeric' 
+      });
+    } else {
+      statEls.next.textContent = '—';
+    }
   }
 }
 
 function getNextEvent() {
   const now = new Date();
-  const upcoming = events.filter(ev => new Date(ev.date) >= now).sort((a, b) => new Date(a.date) - new Date(b.date));
-  return upcoming[0];
+  now.setHours(0, 0, 0, 0);
+  return events
+    .filter(ev => new Date(ev.date) >= now)
+    .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
 }
 
 function renderEvents() {
   const grid = document.getElementById('events-grid');
   if (!grid) return;
   
-  grid.innerHTML = '';
+  const filtered = getFilteredEvents();
   
-  const filteredEvents = getFilteredEvents();
-  
-  if (filteredEvents.length === 0) {
-    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--sage); padding: 40px; font-style: italic;">Nenhum evento encontrado com os filtros aplicados.</div>';
+  if (filtered.length === 0) {
+    grid.innerHTML = `
+      <div style="grid-column: 1/-1; text-align: center; padding: 60px 20px;">
+        <div style="font-size: 48px; margin-bottom: 16px;">📅</div>
+        <div style="color: var(--sage); font-size: 16px;">
+          ${events.length === 0 ? 'Nenhum evento cadastrado' : 'Nenhum evento encontrado com os filtros aplicados'}
+        </div>
+      </div>
+    `;
     return;
   }
   
-  filteredEvents.forEach(ev => {
-    const card = createEventCard(ev);
-    grid.appendChild(card);
+  grid.innerHTML = '';
+  filtered.forEach(ev => {
+    grid.appendChild(createEventCard(ev));
   });
 }
 
@@ -539,40 +513,38 @@ function createEventCard(ev) {
   const card = document.createElement('div');
   card.className = 'event-card';
   
-  const times = Array.isArray(ev.times) ? ev.times : (ev.time_start ? JSON.parse(ev.time_start) : ['19:00']);
+  const times = Array.isArray(ev.times) ? ev.times : ['19:00'];
+  const date = formatDate(ev.date);
   
   card.innerHTML = `
     <div class="event-card-header">
-      <div class="event-title">${ev.title || 'Sem título'}</div>
-      <span class="event-date">${formatDate(ev.date)}</span>
+      <div class="event-title">${escapeHtml(ev.title || 'Sem título')}</div>
+      <span class="event-date">${date}</span>
     </div>
     <div class="event-card-body">
       <div class="event-row">
         <span class="event-label">📍 Local</span>
-        <span class="event-value">${ev.venue || 'Sem local'}</span>
+        <span class="event-value">${escapeHtml(ev.venue || 'Sem local')}</span>
       </div>
       <div class="event-row">
         <span class="event-label">🕐 Horário</span>
         <div class="time-slots">
-          ${times.map(t => `<span class="time-slot">${t}</span>`).join('')}
+          ${times.map(t => `<span class="time-slot">${escapeHtml(t)}</span>`).join('')}
         </div>
       </div>
       ${ev.ticketLink ? `
         <div class="event-row">
-          <span class="event-label">🎫 Link</span>
-          <span class="event-value"><a href="${ev.ticketLink}" target="_blank" style="color: var(--bl);">Ver ingressos</a></span>
-        </div>
-      ` : ''}
-      ${ev.desc ? `
-        <div class="event-row">
-          <span class="event-label">📝 Desc</span>
-          <span class="event-value">${ev.desc}</span>
+          <span class="event-label">🎫 Ingressos</span>
+          <span class="event-value">
+            <a href="${escapeHtml(ev.ticketLink)}" target="_blank" rel="noopener" style="color: var(--bl);">
+              Ver ingressos
+            </a>
+          </span>
         </div>
       ` : ''}
     </div>
     <div class="event-card-footer">
-      <button class="btn-small" onclick="editEvent('${ev.id || ev.date}')">Editar</button>
-      <button class="btn-small" onclick="deleteEvent('${ev.id || ev.date}')">Deletar</button>
+      <button class="btn-small" onclick="deleteEvent('${escapeHtml(ev.id || ev.date)}')">🗑️ Deletar</button>
     </div>
   `;
   
@@ -588,8 +560,8 @@ function renderVenues() {
     const card = document.createElement('div');
     card.className = 'venue-card';
     card.innerHTML = `
-      <div class="venue-name">${venue.name}</div>
-      <div class="venue-address">📍 ${venue.addr}</div>
+      <div class="venue-name">${escapeHtml(venue.name)}</div>
+      <div class="venue-address">📍 ${escapeHtml(venue.addr)}</div>
     `;
     grid.appendChild(card);
   });
@@ -599,15 +571,25 @@ function renderArtists() {
   const grid = document.getElementById('artists-grid');
   if (!grid) return;
   
-  grid.innerHTML = '';
-  const sortedArtists = Object.entries(artists).sort((a, b) => b[1] - a[1]);
+  const sorted = Object.entries(artists).sort((a, b) => b[1] - a[1]);
   
-  sortedArtists.forEach(([name, count]) => {
+  if (sorted.length === 0) {
+    grid.innerHTML = `
+      <div style="grid-column: 1/-1; text-align: center; padding: 60px 20px;">
+        <div style="font-size: 48px; margin-bottom: 16px;">🎤</div>
+        <div style="color: var(--sage); font-size: 16px;">Nenhum artista encontrado</div>
+      </div>
+    `;
+    return;
+  }
+  
+  grid.innerHTML = '';
+  sorted.forEach(([name, count]) => {
     const card = document.createElement('div');
     card.className = 'artist-card';
     card.innerHTML = `
       <div class="artist-icon">🎤</div>
-      <div class="artist-name">${name}</div>
+      <div class="artist-name">${escapeHtml(name)}</div>
       <div class="artist-count">${count} ${count === 1 ? 'evento' : 'eventos'}</div>
     `;
     grid.appendChild(card);
@@ -615,16 +597,17 @@ function renderArtists() {
 }
 
 // ── EVENT ACTIONS ──
-function editEvent(eventId) {
-  alert('Edição de eventos será implementada em breve');
-}
-
 function deleteEvent(eventId) {
-  if (confirm('Tem certeza que deseja deletar este evento?')) {
-    events = events.filter(ev => (ev.id || ev.date) !== eventId);
-    localStorage.setItem('eventbot_events', JSON.stringify(events));
+  if (!confirm('Tem certeza que deseja deletar este evento?')) return;
+  
+  const beforeLength = events.length;
+  events = events.filter(ev => (ev.id || ev.date) !== eventId);
+  
+  if (events.length < beforeLength) {
+    saveEvents();
+    extractArtists();
     renderDashboard();
-    chatMessage('bot', '✅ Evento deletado com sucesso!');
+    chatMessage('bot', '✅ Evento deletado!');
   }
 }
 
@@ -632,37 +615,37 @@ function deleteEvent(eventId) {
 function setupChatbot() {
   const input = document.getElementById('chat-input');
   const sendBtn = document.getElementById('btn-send');
-  const closeBtn = document.getElementById('btn-chat-close');
   const chatbot = document.getElementById('chatbot');
   const chatHeader = document.getElementById('chat-header');
   const resizeHandle = document.getElementById('resize-handle');
   
   if (input) {
     input.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') sendChat();
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChat();
+      }
     });
   }
   
-  if (sendBtn) sendBtn.addEventListener('click', sendChat);
-  if (closeBtn) closeBtn.addEventListener('click', minimizeChat);
+  sendBtn?.addEventListener('click', sendChat);
   
-  // Draggable chatbot
+  // Drag functionality
   if (chatHeader && chatbot) {
     chatHeader.style.cursor = 'move';
     
     chatHeader.addEventListener('mousedown', (e) => {
-      if (e.target === closeBtn || e.target.closest('#btn-chat-close')) return;
+      if (e.target.closest('#btn-chat-close')) return;
       
       isDragging = true;
       const rect = chatbot.getBoundingClientRect();
       dragStartX = e.clientX - rect.left;
       dragStartY = e.clientY - rect.top;
-      
       chatbot.style.transition = 'none';
     });
   }
   
-  // Resizable chatbot
+  // Resize functionality
   if (resizeHandle && chatbot) {
     resizeHandle.addEventListener('mousedown', (e) => {
       e.stopPropagation();
@@ -672,7 +655,6 @@ function setupChatbot() {
       resizeStartHeight = rect.height;
       dragStartX = e.clientX;
       dragStartY = e.clientY;
-      
       chatbot.style.transition = 'none';
     });
   }
@@ -685,80 +667,71 @@ function setupChatbot() {
       
       chatbot.style.right = 'auto';
       chatbot.style.bottom = 'auto';
-      chatbot.style.left = Math.max(0, Math.min(x, window.innerWidth - chatbot.offsetWidth)) + 'px';
-      chatbot.style.top = Math.max(0, Math.min(y, window.innerHeight - chatbot.offsetHeight)) + 'px';
+      chatbot.style.left = `${Math.max(0, Math.min(x, window.innerWidth - chatbot.offsetWidth))}px`;
+      chatbot.style.top = `${Math.max(0, Math.min(y, window.innerHeight - chatbot.offsetHeight))}px`;
     }
     
     if (isResizing && chatbot) {
-      const deltaX = e.clientX - dragStartX;
-      const deltaY = e.clientY - dragStartY;
+      const newWidth = Math.max(300, resizeStartWidth + (e.clientX - dragStartX));
+      const newHeight = Math.max(400, resizeStartHeight + (e.clientY - dragStartY));
       
-      const newWidth = Math.max(300, resizeStartWidth + deltaX);
-      const newHeight = Math.max(400, resizeStartHeight + deltaY);
-      
-      chatbot.style.width = newWidth + 'px';
-      chatbot.style.height = newHeight + 'px';
+      chatbot.style.width = `${newWidth}px`;
+      chatbot.style.height = `${newHeight}px`;
     }
   });
   
   document.addEventListener('mouseup', () => {
-    if ((isDragging || isResizing) && chatbot) {
+    if (isDragging || isResizing) {
       chatbot.style.transition = '';
     }
     isDragging = false;
     isResizing = false;
   });
+  
+  // Close button
+  document.getElementById('btn-chat-close')?.addEventListener('click', () => {
+    if (chatbot) chatbot.style.display = 'none';
+  });
 }
 
 function sendChat() {
   const input = document.getElementById('chat-input');
-  const msg = (input?.value || '').trim();
+  const msg = input?.value?.trim();
   if (!msg) return;
   
   chatMessage('user', msg);
   input.value = '';
   
-  // Simple chatbot responses
-  setTimeout(() => {
-    const msgLower = msg.toLowerCase();
-    
-    if (msgLower.includes('login') || msgLower.includes('conectar') || msgLower.includes('google')) {
-      chatMessage('bot', '🔐 Use o botão "Login Google" no topo da página para conectar sua conta');
-    } else if (msgLower.includes('sincronizar') || msgLower.includes('sync')) {
-      if (isSignedIn) {
-        syncCalendarEvents();
-      } else {
-        chatMessage('bot', '⚠️ Faça login no Google primeiro para sincronizar eventos');
-      }
-    } else if (msgLower.includes('filtro') && msgLower.includes('show')) {
-      applyFilter('type', 'shows');
-    } else if (msgLower.includes('filtro') && msgLower.includes('filme')) {
-      applyFilter('type', 'movies');
-    } else if (msgLower.includes('resetar') || msgLower.includes('limpar filtro')) {
-      resetFilters();
-    } else if (msgLower.includes('novo evento') || msgLower.includes('criar')) {
-      chatMessage('bot', 'Para criar um novo evento, descreva:\n📝 Nome do evento\n📍 Local\n📅 Data\n🕐 Horário(s)\n🎫 Link de ingressos (opcional)');
-    } else if (msgLower.includes('eventos')) {
-      const filtered = getFilteredEvents();
-      chatMessage('bot', `📊 Você tem ${events.length} eventos cadastrados (${filtered.length} visíveis com filtros atuais)`);
-    } else if (msgLower.includes('locais')) {
-      chatMessage('bot', `🗺️ Temos ${venues.length} locais cadastrados. Veja na aba "Locais"!`);
-    } else if (msgLower.includes('artista') || msgLower.includes('banda')) {
-      chatMessage('bot', `🎤 ${Object.keys(artists).length} artistas diferentes nos seus eventos!`);
-    } else if (msgLower.includes('ajuda') || msgLower.includes('help') || msgLower.includes('comandos')) {
-      chatMessage('bot', `📚 Comandos disponíveis:
-• "login google" → Conectar conta Google
-• "sincronizar" → Sync eventos do Calendar
-• "filtro shows" → Ver apenas shows
-• "filtro filmes" → Ver apenas filmes
-• "resetar filtro" → Limpar filtros
-• "eventos" → Ver estatísticas
-• "locais" → Ver locais cadastrados
-• "artistas" → Ver artistas`);
+  setTimeout(() => handleChatCommand(msg), 300);
+}
+
+function handleChatCommand(msg) {
+  const lower = msg.toLowerCase();
+  
+  if (lower.includes('ajuda') || lower.includes('help')) {
+    chatMessage('bot', `� Comandos disponíveis:
+• "login" - Conectar Google Calendar
+• "sync" - Sincronizar eventos
+• "eventos" - Ver estatísticas
+• "locais" - Ver locais cadastrados
+• "artistas" - Ver artistas`);
+  } else if (lower.includes('login') || lower.includes('conectar')) {
+    chatMessage('bot', '🔐 Clique no botão "Login Google" no topo da página');
+  } else if (lower.includes('sync') || lower.includes('sincronizar')) {
+    if (accessToken) {
+      syncCalendarEvents();
     } else {
-      chatMessage('bot', 'Desculpe, não entendi. Tente "ajuda" para ver os comandos disponíveis!');
+      chatMessage('bot', '⚠️ Faça login primeiro');
     }
-  }, 500);
+  } else if (lower.includes('eventos')) {
+    chatMessage('bot', `📊 Total: ${events.length} eventos`);
+  } else if (lower.includes('locais')) {
+    chatMessage('bot', `🗺️ Total: ${venues.length} locais cadastrados`);
+  } else if (lower.includes('artistas')) {
+    chatMessage('bot', `🎤 Total: ${Object.keys(artists).length} artistas`);
+  } else {
+    chatMessage('bot', 'Digite "ajuda" para ver os comandos disponíveis');
+  }
 }
 
 function chatMessage(role, text) {
@@ -767,43 +740,21 @@ function chatMessage(role, text) {
   
   const msgEl = document.createElement('div');
   msgEl.className = `chat-message ${role}`;
+  
+  const avatar = role === 'bot' ? '🤖' : '👤';
   msgEl.innerHTML = `
-    <div class="chat-avatar">${role === 'bot' ? '🤖' : '👤'}</div>
-    <div class="chat-bubble">${text}</div>
+    <div class="chat-avatar">${avatar}</div>
+    <div class="chat-bubble">${escapeHtml(text).replace(/\n/g, '<br>')}</div>
   `;
   
   container.appendChild(msgEl);
   container.scrollTop = container.scrollHeight;
 }
 
-function minimizeChat() {
-  const chatbot = document.getElementById('chatbot');
-  if (chatbot) {
-    chatbot.style.display = 'none';
-  }
-}
-
-function toggleChat() {
-  const chatbot = document.getElementById('chatbot');
-  if (chatbot) {
-    chatbot.style.display = chatbot.style.display === 'none' ? 'flex' : 'none';
-  }
-}
-
-// ── SETTINGS ──
-function openSettings() {
-  alert('Configurações:\n\nConfig Theme, API Keys, etc será implementado em breve!');
-}
-
-// ── WELCOME ──
-function welcome() {
-  chatMessage('bot', `👋 Bem-vindo ao EventBot!\n\nUse o chat para:\n✨ Criar novos eventos\n📊 Ver estatísticas\n🎤 Gerenciar artistas\n📍 Explorar locais`);
-}
-
 // ── UTILITIES ──
 function formatDate(dateStr) {
   try {
-    const date = new Date(dateStr);
+    const date = new Date(dateStr + 'T00:00:00');
     return date.toLocaleDateString('pt-BR', { 
       weekday: 'short',
       day: '2-digit',
@@ -814,13 +765,13 @@ function formatDate(dateStr) {
   }
 }
 
-// ── EXPORT ──
-window.editEvent = editEvent;
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ── EXPORTS ──
 window.deleteEvent = deleteEvent;
-window.toggleChat = toggleChat;
-window.sendChat = sendChat;
-window.toggleTheme = toggleTheme;
 window.handleLoginClick = handleLoginClick;
-window.syncCalendarEvents = syncCalendarEvents;
-window.applyFilter = applyFilter;
-window.resetFilters = resetFilters;
+window.toggleTheme = toggleTheme;
