@@ -82,9 +82,12 @@ function checkAPILoadStatus() {
   const checkInterval = setInterval(() => {
     apiLoadAttempts++;
     
+    console.log(`🔍 Verificando APIs (tentativa ${apiLoadAttempts}/${MAX_API_LOAD_ATTEMPTS}): GAPI=${gapiLoaded}, GIS=${gisLoaded}`);
+    
     if (gapiLoaded && gisLoaded) {
       clearInterval(checkInterval);
       console.log('✅ Todas as APIs do Google carregadas com sucesso');
+      chatMessage('bot', '✅ Google API pronto! Você pode fazer login agora.');
       return;
     }
     
@@ -103,39 +106,56 @@ function checkAPILoadStatus() {
 }
 
 function loadScript(src, callback) {
+  console.log(`🔄 Carregando: ${src}`);
   const script = document.createElement('script');
   script.src = src;
-  script.onload = callback;
-  script.onerror = () => console.error(`Failed to load ${src}`);
+  script.onload = () => {
+    console.log(`✅ Carregado: ${src}`);
+    if (callback) callback();
+  };
+  script.onerror = () => {
+    console.error(`❌ Falha ao carregar: ${src}`);
+    chatMessage('bot', `❌ Erro ao carregar ${src.includes('gsi') ? 'Google Identity' : 'Google API'}. Verifique sua conexão.`);
+  };
   document.head.appendChild(script);
 }
 
 async function initGapiClient() {
+  console.log('🔄 Inicializando GAPI Client...');
   try {
     await gapi.client.init({
       apiKey: cfg.apiKey,
       discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest'],
     });
     gapiLoaded = true;
-    console.log('✅ Google API Client inicializado');
+    console.log('✅ GAPI Client inicializado com sucesso');
     updateLoginButton();
   } catch (e) {
     console.error('❌ Erro ao inicializar GAPI:', e);
+    chatMessage('bot', `❌ Erro GAPI: ${e.message}`);
   }
 }
 
 function initGISClient() {
+  console.log('🔄 Inicializando GIS Client...');
   try {
+    if (typeof google === 'undefined' || !google.accounts) {
+      console.error('❌ google.accounts não está disponível');
+      setTimeout(initGISClient, 500); // Retry
+      return;
+    }
+    
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: cfg.clientId,
       scope: 'https://www.googleapis.com/auth/calendar.readonly',
       callback: handleAuthResponse,
     });
     gisLoaded = true;
-    console.log('✅ Google Identity Services inicializado');
+    console.log('✅ GIS Client inicializado com sucesso');
     updateLoginButton();
   } catch (e) {
     console.error('❌ Erro ao inicializar GIS:', e);
+    chatMessage('bot', `❌ Erro GIS: ${e.message}`);
   }
 }
 

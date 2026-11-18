@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teste Google API</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #1a1a1a;
+      color: #fff;
+    }
+    button {
+      padding: 12px 24px;
+      font-size: 16px;
+      margin: 10px;
+      cursor: pointer;
+      border: none;
+      border-radius: 8px;
+      background: #4285f4;
+      color: white;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .log {
+      background: #2a2a2a;
+      padding: 15px;
+      margin: 20px 0;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 14px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .log-item {
+      margin: 5px 0;
+      padding: 5px;
+      border-left: 3px solid #4285f4;
+      padding-left: 10px;
+    }
+    .error { border-left-color: #f44336; }
+    .success { border-left-color: #4caf50; }
+    .warning { border-left-color: #ff9800; }
+  </style>
+</head>
+<body>
+  <h1>🔍 Teste de Carregamento Google API</h1>
+  
+  <button id="btn-test" onclick="testLogin()" disabled>⏳ Carregando APIs...</button>
+  <button onclick="clearLog()">🗑️ Limpar Log</button>
+  
+  <div class="log" id="log"></div>
+
+  <script>
+    const CLIENT_ID = '483752309274-of13qhrd0udioaen2dvf8cno2egimsvq.apps.googleusercontent.com';
+    const API_KEY = 'AIzaSyBHopQnhjbP569baNBOxAMcHAnN-faQnm8';
+    const CALENDAR_ID = '39fbbd9c5f4505e1cb6cd6e61371d3563d8cc9d5fff677fc87e7b32abe14f767@group.calendar.google.com';
+    
+    let gapiLoaded = false;
+    let gisLoaded = false;
+    let tokenClient = null;
+    
+    function log(message, type = 'info') {
+      const logDiv = document.getElementById('log');
+      const item = document.createElement('div');
+      item.className = `log-item ${type}`;
+      item.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logDiv.appendChild(item);
+      logDiv.scrollTop = logDiv.scrollHeight;
+      console.log(message);
+    }
+    
+    function clearLog() {
+      document.getElementById('log').innerHTML = '';
+    }
+    
+    function updateButton() {
+      const btn = document.getElementById('btn-test');
+      if (gapiLoaded && gisLoaded) {
+        btn.textContent = '🔐 Fazer Login';
+        btn.disabled = false;
+      } else {
+        btn.textContent = `⏳ Carregando... (GAPI:${gapiLoaded}, GIS:${gisLoaded})`;
+        btn.disabled = true;
+      }
+    }
+    
+    // Load GAPI
+    log('Carregando Google API Client...', 'info');
+    const gapiScript = document.createElement('script');
+    gapiScript.src = 'https://apis.google.com/js/api.js';
+    gapiScript.onload = () => {
+      log('✅ Script GAPI carregado', 'success');
+      gapi.load('client', async () => {
+        try {
+          await gapi.client.init({
+            apiKey: API_KEY,
+            discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest'],
+          });
+          gapiLoaded = true;
+          log('✅ GAPI Client inicializado', 'success');
+          updateButton();
+        } catch (e) {
+          log(`❌ Erro GAPI: ${e.message}`, 'error');
+        }
+      });
+    };
+    gapiScript.onerror = () => {
+      log('❌ Falha ao carregar script GAPI', 'error');
+    };
+    document.head.appendChild(gapiScript);
+    
+    // Load GIS
+    log('Carregando Google Identity Services...', 'info');
+    const gisScript = document.createElement('script');
+    gisScript.src = 'https://accounts.google.com/gsi/client';
+    gisScript.onload = () => {
+      log('✅ Script GIS carregado', 'success');
+      
+      // Wait for google.accounts to be available
+      const checkGIS = setInterval(() => {
+        if (typeof google !== 'undefined' && google.accounts) {
+          clearInterval(checkGIS);
+          try {
+            tokenClient = google.accounts.oauth2.initTokenClient({
+              client_id: CLIENT_ID,
+              scope: 'https://www.googleapis.com/auth/calendar.readonly',
+              callback: handleAuthResponse,
+            });
+            gisLoaded = true;
+            log('✅ GIS Client inicializado', 'success');
+            updateButton();
+          } catch (e) {
+            log(`❌ Erro GIS: ${e.message}`, 'error');
+          }
+        }
+      }, 100);
+      
+      setTimeout(() => {
+        if (!gisLoaded) {
+          clearInterval(checkGIS);
+          log('❌ Timeout: google.accounts não disponível', 'error');
+        }
+      }, 5000);
+    };
+    gisScript.onerror = () => {
+      log('❌ Falha ao carregar script GIS', 'error');
+    };
+    document.head.appendChild(gisScript);
+    
+    function handleAuthResponse(response) {
+      if (response.error) {
+        log(`❌ Erro de autenticação: ${response.error}`, 'error');
+        return;
+      }
+      
+      log('✅ Login realizado com sucesso!', 'success');
+      log(`🔑 Token: ${response.access_token.substring(0, 20)}...`, 'info');
+      
+      // Testar busca de eventos
+      fetchCalendarEvents(response.access_token);
+    }
+    
+    async function fetchCalendarEvents(token) {
+      try {
+        log('📅 Buscando eventos do calendário...', 'info');
+        const response = await gapi.client.calendar.events.list({
+          calendarId: CALENDAR_ID,
+          timeMin: new Date().toISOString(),
+          maxResults: 10,
+          singleEvents: true,
+          orderBy: 'startTime',
+        });
+        
+        const events = response.result.items || [];
+        log(`✅ ${events.length} eventos encontrados`, 'success');
+        
+        events.forEach((ev, i) => {
+          log(`  ${i+1}. ${ev.summary} - ${ev.start.dateTime || ev.start.date}`, 'info');
+        });
+      } catch (e) {
+        log(`❌ Erro ao buscar eventos: ${e.message}`, 'error');
+      }
+    }
+    
+    function testLogin() {
+      if (!gapiLoaded || !gisLoaded) {
+        log('⚠️ APIs ainda não estão prontas', 'warning');
+        return;
+      }
+      
+      log('🔄 Solicitando autorização...', 'info');
+      tokenClient.requestAccessToken();
+    }
+  </script>
+</body>
+</html>
