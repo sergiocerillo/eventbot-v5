@@ -38,6 +38,7 @@ window.addEventListener('load', async () => {
   initTheme();
   setupNavigation();
   setupChatbot();
+  updateLoginButton(); // Show loading state immediately
   initGoogleAPI();
   renderDashboard();
   welcome();
@@ -60,6 +61,9 @@ let cfg = {
 };
 
 // ── GOOGLE CALENDAR API ──
+let apiLoadAttempts = 0;
+const MAX_API_LOAD_ATTEMPTS = 20; // 20 tentativas = 10 segundos
+
 function initGoogleAPI() {
   // Load Google API scripts
   loadScript('https://apis.google.com/js/api.js', () => {
@@ -69,6 +73,33 @@ function initGoogleAPI() {
   loadScript('https://accounts.google.com/gsi/client', () => {
     initGISClient();
   });
+  
+  // Check if APIs loaded successfully after timeout
+  checkAPILoadStatus();
+}
+
+function checkAPILoadStatus() {
+  const checkInterval = setInterval(() => {
+    apiLoadAttempts++;
+    
+    if (gapiLoaded && gisLoaded) {
+      clearInterval(checkInterval);
+      console.log('✅ Todas as APIs do Google carregadas com sucesso');
+      return;
+    }
+    
+    if (apiLoadAttempts >= MAX_API_LOAD_ATTEMPTS) {
+      clearInterval(checkInterval);
+      console.warn('⚠️ Timeout ao carregar APIs do Google. Recarregue a página.');
+      chatMessage('bot', '⚠️ Erro ao carregar Google API. Por favor, recarregue a página.');
+      
+      const btn = document.getElementById('btn-google-login');
+      if (btn) {
+        btn.textContent = '❌ Erro - Recarregue';
+        btn.disabled = true;
+      }
+    }
+  }, 500);
 }
 
 function loadScript(src, callback) {
@@ -128,14 +159,32 @@ function updateLoginButton() {
   if (isSignedIn) {
     btn.textContent = '✓ Conectado';
     btn.style.background = 'linear-gradient(135deg, #4CAF50, #45a049)';
-  } else {
+    btn.disabled = false;
+  } else if (gapiLoaded && gisLoaded) {
     btn.textContent = '🔐 Login Google';
+    btn.style.background = '';
+    btn.disabled = false;
+  } else {
+    btn.textContent = '⏳ Carregando...';
+    btn.style.opacity = '0.6';
+    btn.disabled = true;
   }
 }
 
 async function handleLoginClick() {
+  const btn = document.getElementById('btn-google-login');
+  
   if (!gapiLoaded || !gisLoaded) {
-    chatMessage('bot', '⚠️ Google API ainda carregando. Tente novamente em alguns segundos.');
+    const missingAPIs = [];
+    if (!gapiLoaded) missingAPIs.push('GAPI');
+    if (!gisLoaded) missingAPIs.push('GIS');
+    
+    chatMessage('bot', `⚠️ Aguardando carregar: ${missingAPIs.join(', ')}. Tente novamente em alguns segundos.`);
+    
+    if (btn) {
+      btn.textContent = '⏳ Carregando API...';
+      btn.disabled = true;
+    }
     return;
   }
   
@@ -145,6 +194,11 @@ async function handleLoginClick() {
   }
   
   // Request token
+  if (btn) {
+    btn.textContent = '🔄 Aguardando autorização...';
+    btn.disabled = true;
+  }
+  
   tokenClient.requestAccessToken();
 }
 
