@@ -637,6 +637,68 @@ body.light-mode .nav-tab.active { color: var(--light-text); }
   transform: translateY(-1px);
 }
 
+/* ── RESIZE HANDLE ── */
+.resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, var(--brown) 50%);
+  border-bottom-right-radius: var(--r);
+  opacity: .5;
+  transition: opacity .2s;
+}
+
+.resize-handle:hover {
+  opacity: 1;
+}
+
+/* ── FILTERS BAR ── */
+.filters-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  padding: 8px 16px;
+  background: rgba(162,123,92,.1);
+  border: 1px solid rgba(162,123,92,.2);
+  color: var(--sand);
+  border-radius: 20px;
+  font-family: 'Google Sans', sans-serif;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .2s;
+}
+
+.filter-btn:hover {
+  background: rgba(162,123,92,.2);
+  border-color: rgba(162,123,92,.35);
+  transform: translateY(-1px);
+}
+
+.filter-btn.active {
+  background: linear-gradient(135deg, var(--brown), #7a5c3e);
+  border-color: var(--brown);
+  color: var(--sand);
+  font-weight: 600;
+}
+
+.filter-btn.reset {
+  background: rgba(210,70,70,.1);
+  border-color: rgba(210,70,70,.3);
+  color: #c07070;
+}
+
+.filter-btn.reset:hover {
+  background: rgba(210,70,70,.2);
+  border-color: rgba(210,70,70,.5);
+}
+
 /* ── HIDDEN SECTIONS ── */
 .hidden { display: none !important; }
 
@@ -750,6 +812,7 @@ body.light-mode .nav-tab.active { color: var(--light-text); }
         <div class="sdot on"></div>
         <span id="status-text">Pronto</span>
       </div>
+      <button class="btn-top" id="btn-google-login" onclick="handleLoginClick()">🔐 Login Google</button>
       <button class="btn-top" id="btn-settings">⚙️ Config</button>
       <button class="btn-top" id="btn-theme">☀</button>
     </div>
@@ -791,6 +854,15 @@ body.light-mode .nav-tab.active { color: var(--light-text); }
           <span class="section-icon">🎵</span>
           <span class="section-title">Eventos Cadastrados</span>
         </div>
+        
+        <!-- FILTERS BAR -->
+        <div class="filters-bar">
+          <button class="filter-btn active" onclick="applyFilter('type', 'all')">🌟 Todos</button>
+          <button class="filter-btn" onclick="applyFilter('type', 'shows')">🎸 Shows</button>
+          <button class="filter-btn" onclick="applyFilter('type', 'movies')">🎬 Filmes</button>
+          <button class="filter-btn reset" onclick="resetFilters()">🔄 Resetar</button>
+        </div>
+        
         <div class="events-grid" id="events-grid">
           <!-- Events will be rendered here -->
         </div>
@@ -827,7 +899,7 @@ body.light-mode .nav-tab.active { color: var(--light-text); }
 
 <!-- FLOATING CHATBOT -->
 <div class="chatbot-floating" id="chatbot">
-  <div class="chat-header">
+  <div class="chat-header" id="chat-header">
     <div class="chat-title">
       <span>💬</span>
       <span>EventBot Chat</span>
@@ -838,7 +910,7 @@ body.light-mode .nav-tab.active { color: var(--light-text); }
   <div class="chat-messages" id="chat-messages">
     <div class="chat-message bot">
       <div class="chat-avatar">🤖</div>
-      <div class="chat-bubble">Olá! 👋 Como posso ajudar?</div>
+      <div class="chat-bubble">Olá! 👋 Digite "ajuda" para ver os comandos disponíveis!</div>
     </div>
   </div>
 
@@ -846,13 +918,16 @@ body.light-mode .nav-tab.active { color: var(--light-text); }
     <input type="text" class="chat-input" id="chat-input" placeholder="Escreva uma mensagem...">
     <button class="btn-send" id="btn-send">➤</button>
   </div>
+  
+  <!-- Resize handle -->
+  <div class="resize-handle" id="resize-handle"></div>
 </div>
 
 <!-- HIDDEN: Original chat and modals will be kept in DOM but hidden -->
 <div id="modals-container"></div>
 <div id="original-app" class="hidden"></div>
 
-<script src="app-dashboard.js?v=20260820"></script>
+<script src="app-dashboard.js?v=20260821"></script>
 
 </body>
 </html>

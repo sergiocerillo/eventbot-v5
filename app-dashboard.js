@@ -1,6 +1,6 @@
 // ════════════════════════════════════════════════════════════════
-// EventBot Dashboard v5.0
-// Sistema de Gerenciamento de Eventos com Dashboard Home
+// EventBot Dashboard v5.1
+// Sistema de Gerenciamento de Eventos com Google Calendar Sync
 // ════════════════════════════════════════════════════════════════
 
 // ── STATE ──
@@ -9,6 +9,26 @@ let venues = [];
 let artists = {};
 let darkMode = true;
 let currentTab = 'home';
+let currentFilter = 'all'; // 'all', 'shows', 'movies'
+let currentVenueFilter = null;
+let currentArtistFilter = null;
+
+// Google API State
+let gapiLoaded = false;
+let gisLoaded = false;
+let tokenClient = null;
+let accessToken = null;
+let isSignedIn = false;
+
+// Chatbot draggable state
+let isDragging = false;
+let isResizing = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let chatbotX = 0;
+let chatbotY = 0;
+let resizeStartWidth = 0;
+let resizeStartHeight = 0;
 
 // ── INIT ──
 window.addEventListener('load', async () => {
@@ -18,6 +38,7 @@ window.addEventListener('load', async () => {
   initTheme();
   setupNavigation();
   setupChatbot();
+  initGoogleAPI();
   renderDashboard();
   welcome();
 });
@@ -31,12 +52,199 @@ function loadConfig() {
 }
 
 let cfg = {
-  clientId: '',
-  apiKey: '',
-  calendarId: '',
+  clientId: '483752309274-of13qhrd0udioaen2dvf8cno2egimsvq.apps.googleusercontent.com',
+  apiKey: 'AIzaSyBHopQnhjbP569baNBOxAMcHAnN-faQnm8',
+  calendarId: '39fbbd9c5f4505e1cb6cd6e61371d3563d8cc9d5fff677fc87e7b32abe14f767@group.calendar.google.com',
   openRouterKey: '',
   serviceAccount: null,
 };
+
+// ── GOOGLE CALENDAR API ──
+function initGoogleAPI() {
+  // Load Google API scripts
+  loadScript('https://apis.google.com/js/api.js', () => {
+    gapi.load('client', initGapiClient);
+  });
+  
+  loadScript('https://accounts.google.com/gsi/client', () => {
+    initGISClient();
+  });
+}
+
+function loadScript(src, callback) {
+  const script = document.createElement('script');
+  script.src = src;
+  script.onload = callback;
+  script.onerror = () => console.error(`Failed to load ${src}`);
+  document.head.appendChild(script);
+}
+
+async function initGapiClient() {
+  try {
+    await gapi.client.init({
+      apiKey: cfg.apiKey,
+      discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest'],
+    });
+    gapiLoaded = true;
+    console.log('✅ Google API Client inicializado');
+    updateLoginButton();
+  } catch (e) {
+    console.error('❌ Erro ao inicializar GAPI:', e);
+  }
+}
+
+function initGISClient() {
+  try {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: cfg.clientId,
+      scope: 'https://www.googleapis.com/auth/calendar.readonly',
+      callback: handleAuthResponse,
+    });
+    gisLoaded = true;
+    console.log('✅ Google Identity Services inicializado');
+    updateLoginButton();
+  } catch (e) {
+    console.error('❌ Erro ao inicializar GIS:', e);
+  }
+}
+
+function handleAuthResponse(response) {
+  if (response.error) {
+    console.error('❌ Erro de autenticação:', response.error);
+    return;
+  }
+  
+  accessToken = response.access_token;
+  isSignedIn = true;
+  updateLoginButton();
+  syncCalendarEvents();
+  chatMessage('bot', '✅ Login realizado com sucesso! Sincronizando eventos...');
+}
+
+function updateLoginButton() {
+  const btn = document.getElementById('btn-google-login');
+  if (!btn) return;
+  
+  if (isSignedIn) {
+    btn.textContent = '✓ Conectado';
+    btn.style.background = 'linear-gradient(135deg, #4CAF50, #45a049)';
+  } else {
+    btn.textContent = '🔐 Login Google';
+  }
+}
+
+async function handleLoginClick() {
+  if (!gapiLoaded || !gisLoaded) {
+    chatMessage('bot', '⚠️ Google API ainda carregando. Tente novamente em alguns segundos.');
+    return;
+  }
+  
+  if (isSignedIn) {
+    handleSignOut();
+    return;
+  }
+  
+  // Request token
+  tokenClient.requestAccessToken();
+}
+
+function handleSignOut() {
+  if (accessToken) {
+    google.accounts.oauth2.revoke(accessToken, () => {
+      console.log('Token revogado');
+    });
+  }
+  accessToken = null;
+  isSignedIn = false;
+  updateLoginButton();
+  chatMessage('bot', '👋 Desconectado do Google Calendar');
+}
+
+async function syncCalendarEvents() {
+  if (!isSignedIn || !cfg.calendarId) {
+    chatMessage('bot', '⚠️ Configure o Calendar ID nas configurações primeiro');
+    return;
+  }
+  
+  try {
+    const response = await gapi.client.calendar.events.list({
+      calendarId: cfg.calendarId,
+      timeMin: new Date().toISOString(),
+      maxResults: 100,
+      singleEvents: true,
+      orderBy: 'startTime',
+    });
+    
+    const calendarEvents = response.result.items || [];
+    chatMessage('bot', `📅 ${calendarEvents.length} eventos encontrados no Google Calendar`);
+    
+    // Convert calendar events to our format
+    const convertedEvents = calendarEvents.map(ev => convertCalendarEvent(ev));
+    
+    // Merge with existing events
+    events = [...events, ...convertedEvents];
+    
+    // Remove duplicates
+    events = events.filter((ev, index, self) =>
+      index === self.findIndex(e => e.id === ev.id || (e.title === ev.title && e.date === ev.date))
+    );
+    
+    // Save and render
+    localStorage.setItem('eventbot_events', JSON.stringify(events));
+    extractArtists();
+    renderDashboard();
+    
+    chatMessage('bot', `✅ ${convertedEvents.length} eventos sincronizados!`);
+  } catch (e) {
+    console.error('❌ Erro ao sincronizar:', e);
+    chatMessage('bot', '❌ Erro ao sincronizar eventos. Verifique suas permissões.');
+  }
+}
+
+function convertCalendarEvent(calEvent) {
+  const startDate = calEvent.start.dateTime || calEvent.start.date;
+  const date = new Date(startDate);
+  
+  return {
+    id: calEvent.id,
+    title: calEvent.summary || 'Sem título',
+    date: date.toISOString().split('T')[0],
+    times: [date.toTimeString().slice(0, 5)],
+    venue: extractVenue(calEvent.location || calEvent.description || ''),
+    venue_addr: calEvent.location || '',
+    ticketLink: extractLink(calEvent.description || ''),
+    desc: calEvent.description || '',
+    price: '',
+    platform: 'google-calendar',
+    type: detectEventType(calEvent.summary || '')
+  };
+}
+
+function extractVenue(text) {
+  const venueNames = venues.map(v => v.name);
+  for (const venueName of venueNames) {
+    if (text.toLowerCase().includes(venueName.toLowerCase())) {
+      return venueName;
+    }
+  }
+  return 'Local não especificado';
+}
+
+function extractLink(text) {
+  const urlMatch = text.match(/https?:\/\/[^\s]+/);
+  return urlMatch ? urlMatch[0] : '';
+}
+
+function detectEventType(title) {
+  const movieKeywords = ['filme', 'cinema', 'sessão', 'exibição'];
+  const titleLower = title.toLowerCase();
+  
+  for (const keyword of movieKeywords) {
+    if (titleLower.includes(keyword)) return 'movie';
+  }
+  
+  return 'show';
+}
 
 // ── THEME ──
 function initTheme() {
@@ -120,6 +328,51 @@ function extractArtists() {
   });
 }
 
+// ── FILTERS ──
+function applyFilter(filterType, value) {
+  if (filterType === 'type') {
+    currentFilter = value;
+  } else if (filterType === 'venue') {
+    currentVenueFilter = value;
+  } else if (filterType === 'artist') {
+    currentArtistFilter = value;
+  }
+  
+  renderEvents();
+  chatMessage('bot', `🔍 Filtro aplicado: ${value}`);
+}
+
+function getFilteredEvents() {
+  let filtered = [...events];
+  
+  // Filter by type (shows, movies, all)
+  if (currentFilter === 'shows') {
+    filtered = filtered.filter(ev => ev.type !== 'movie');
+  } else if (currentFilter === 'movies') {
+    filtered = filtered.filter(ev => ev.type === 'movie');
+  }
+  
+  // Filter by venue
+  if (currentVenueFilter && currentVenueFilter !== 'all') {
+    filtered = filtered.filter(ev => ev.venue === currentVenueFilter);
+  }
+  
+  // Filter by artist
+  if (currentArtistFilter && currentArtistFilter !== 'all') {
+    filtered = filtered.filter(ev => ev.title.toLowerCase() === currentArtistFilter.toLowerCase());
+  }
+  
+  return filtered;
+}
+
+function resetFilters() {
+  currentFilter = 'all';
+  currentVenueFilter = null;
+  currentArtistFilter = null;
+  renderEvents();
+  chatMessage('bot', '🔄 Filtros resetados');
+}
+
 // ── NAVIGATION ──
 function setupNavigation() {
   const tabs = document.querySelectorAll('.nav-tab');
@@ -195,12 +448,14 @@ function renderEvents() {
   
   grid.innerHTML = '';
   
-  if (events.length === 0) {
-    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--sage); padding: 40px; font-style: italic;">Nenhum evento cadastrado. Use o chatbot para criar eventos!</div>';
+  const filteredEvents = getFilteredEvents();
+  
+  if (filteredEvents.length === 0) {
+    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--sage); padding: 40px; font-style: italic;">Nenhum evento encontrado com os filtros aplicados.</div>';
     return;
   }
   
-  events.forEach(ev => {
+  filteredEvents.forEach(ev => {
     const card = createEventCard(ev);
     grid.appendChild(card);
   });
@@ -304,6 +559,9 @@ function setupChatbot() {
   const input = document.getElementById('chat-input');
   const sendBtn = document.getElementById('btn-send');
   const closeBtn = document.getElementById('btn-chat-close');
+  const chatbot = document.getElementById('chatbot');
+  const chatHeader = document.getElementById('chat-header');
+  const resizeHandle = document.getElementById('resize-handle');
   
   if (input) {
     input.addEventListener('keypress', (e) => {
@@ -313,6 +571,69 @@ function setupChatbot() {
   
   if (sendBtn) sendBtn.addEventListener('click', sendChat);
   if (closeBtn) closeBtn.addEventListener('click', minimizeChat);
+  
+  // Draggable chatbot
+  if (chatHeader && chatbot) {
+    chatHeader.style.cursor = 'move';
+    
+    chatHeader.addEventListener('mousedown', (e) => {
+      if (e.target === closeBtn || e.target.closest('#btn-chat-close')) return;
+      
+      isDragging = true;
+      const rect = chatbot.getBoundingClientRect();
+      dragStartX = e.clientX - rect.left;
+      dragStartY = e.clientY - rect.top;
+      
+      chatbot.style.transition = 'none';
+    });
+  }
+  
+  // Resizable chatbot
+  if (resizeHandle && chatbot) {
+    resizeHandle.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      isResizing = true;
+      const rect = chatbot.getBoundingClientRect();
+      resizeStartWidth = rect.width;
+      resizeStartHeight = rect.height;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      
+      chatbot.style.transition = 'none';
+    });
+  }
+  
+  // Global mouse handlers
+  document.addEventListener('mousemove', (e) => {
+    if (isDragging && chatbot) {
+      const x = e.clientX - dragStartX;
+      const y = e.clientY - dragStartY;
+      
+      chatbot.style.right = 'auto';
+      chatbot.style.bottom = 'auto';
+      chatbot.style.left = Math.max(0, Math.min(x, window.innerWidth - chatbot.offsetWidth)) + 'px';
+      chatbot.style.top = Math.max(0, Math.min(y, window.innerHeight - chatbot.offsetHeight)) + 'px';
+    }
+    
+    if (isResizing && chatbot) {
+      const deltaX = e.clientX - dragStartX;
+      const deltaY = e.clientY - dragStartY;
+      
+      const newWidth = Math.max(300, resizeStartWidth + deltaX);
+      const newHeight = Math.max(400, resizeStartHeight + deltaY);
+      
+      chatbot.style.width = newWidth + 'px';
+      chatbot.style.height = newHeight + 'px';
+    }
+  });
+  
+  document.addEventListener('mouseup', () => {
+    if ((isDragging || isResizing) && chatbot) {
+      chatbot.style.transition = '';
+    }
+    isDragging = false;
+    isResizing = false;
+  });
 }
 
 function sendChat() {
@@ -325,16 +646,43 @@ function sendChat() {
   
   // Simple chatbot responses
   setTimeout(() => {
-    if (msg.toLowerCase().includes('novo evento') || msg.toLowerCase().includes('criar')) {
+    const msgLower = msg.toLowerCase();
+    
+    if (msgLower.includes('login') || msgLower.includes('conectar') || msgLower.includes('google')) {
+      chatMessage('bot', '🔐 Use o botão "Login Google" no topo da página para conectar sua conta');
+    } else if (msgLower.includes('sincronizar') || msgLower.includes('sync')) {
+      if (isSignedIn) {
+        syncCalendarEvents();
+      } else {
+        chatMessage('bot', '⚠️ Faça login no Google primeiro para sincronizar eventos');
+      }
+    } else if (msgLower.includes('filtro') && msgLower.includes('show')) {
+      applyFilter('type', 'shows');
+    } else if (msgLower.includes('filtro') && msgLower.includes('filme')) {
+      applyFilter('type', 'movies');
+    } else if (msgLower.includes('resetar') || msgLower.includes('limpar filtro')) {
+      resetFilters();
+    } else if (msgLower.includes('novo evento') || msgLower.includes('criar')) {
       chatMessage('bot', 'Para criar um novo evento, descreva:\n📝 Nome do evento\n📍 Local\n📅 Data\n🕐 Horário(s)\n🎫 Link de ingressos (opcional)');
-    } else if (msg.toLowerCase().includes('eventos')) {
-      chatMessage('bot', `📊 Você tem ${events.length} eventos cadastrados. Use a aba "Home" para ver todos os detalhes!`);
-    } else if (msg.toLowerCase().includes('locais')) {
+    } else if (msgLower.includes('eventos')) {
+      const filtered = getFilteredEvents();
+      chatMessage('bot', `📊 Você tem ${events.length} eventos cadastrados (${filtered.length} visíveis com filtros atuais)`);
+    } else if (msgLower.includes('locais')) {
       chatMessage('bot', `🗺️ Temos ${venues.length} locais cadastrados. Veja na aba "Locais"!`);
-    } else if (msg.toLowerCase().includes('artista') || msg.toLowerCase().includes('banda')) {
+    } else if (msgLower.includes('artista') || msgLower.includes('banda')) {
       chatMessage('bot', `🎤 ${Object.keys(artists).length} artistas diferentes nos seus eventos!`);
+    } else if (msgLower.includes('ajuda') || msgLower.includes('help') || msgLower.includes('comandos')) {
+      chatMessage('bot', `📚 Comandos disponíveis:
+• "login google" → Conectar conta Google
+• "sincronizar" → Sync eventos do Calendar
+• "filtro shows" → Ver apenas shows
+• "filtro filmes" → Ver apenas filmes
+• "resetar filtro" → Limpar filtros
+• "eventos" → Ver estatísticas
+• "locais" → Ver locais cadastrados
+• "artistas" → Ver artistas`);
     } else {
-      chatMessage('bot', 'Desculpe, ainda não entendo bem esse comando. Tente perguntar sobre eventos, locais ou bandas!');
+      chatMessage('bot', 'Desculpe, não entendi. Tente "ajuda" para ver os comandos disponíveis!');
     }
   }, 500);
 }
@@ -398,3 +746,7 @@ window.deleteEvent = deleteEvent;
 window.toggleChat = toggleChat;
 window.sendChat = sendChat;
 window.toggleTheme = toggleTheme;
+window.handleLoginClick = handleLoginClick;
+window.syncCalendarEvents = syncCalendarEvents;
+window.applyFilter = applyFilter;
+window.resetFilters = resetFilters;
