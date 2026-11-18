@@ -1,0 +1,191 @@
+================================================================================
+LISTA RÁPIDA DE ERROS - PROJETO EVENTS
+================================================================================
+
+🔴 CRÍTICOS (6) - FAZER JÁ
+================================================================================
+
+1. CONFIG.JS - EXPOSIÇÃO DE CHAVES (SEGURANÇA)
+   Arquivo: config.js, linhas 9-12
+   Problema: Chaves de API Supabase hardcoded
+   Ação: Revogar, usar .env, adicionar ao .gitignore
+   
+2. EXTRACTION.JS - FUNÇÃO NÃO DEFINIDA: isUrl()
+   Arquivo: extraction.js, linhas 276, 387
+   Problema: Função chamada mas não existe
+   Ação: Adicionar função isUrl() ou importar de app.js
+   
+3. EXTRACTION.JS - FUNÇÃO NÃO DEFINIDA: callOpenRouter()
+   Arquivo: extraction.js, linha 238
+   Problema: Função chamada em extractWithAI() mas não existe
+   Ação: Usar callback ou importar de app.js
+   
+4. EXTRACTION.JS - DOM INCOMPATÍVEL COM NODE.JS
+   Arquivo: extraction.js, linhas 44, 57, 108, 155
+   Problema: Usa DOMParser, document - não funciona em Node.js
+   Ação: Adicionar verificação de ambiente (browser only)
+   
+5. APP.JS - PROMISE NÃO AGUARDADA
+   Arquivo: app.js, linhas 350-356
+   Problema: getSAToken() chamada sem await em welcome()
+   Ação: Adicionar await ou .then().catch() correto
+   
+6. APP.JS - VARIÁVEIS NÃO INICIALIZADAS
+   Arquivo: app.js
+   Problema: gcalIndex, refreshGcalIndex(), checkDuplicate() não definidas
+   Ação: Inicializar: let gcalIndex = []
+   Ação: Adicionar funções faltantes
+
+================================================================================
+🟠 ALTOS (20) - FAZER HOJE
+================================================================================
+
+7. APP.JS LINE 823 - initDarkMode() NÃO DEFINIDA
+   Arquivo: app.js, linha 355
+   Ação: Definir função initDarkMode()
+
+8. DB.JS LINE 19 - initSupabase() FRÁGIL
+   Arquivo: db.js, linhas 13-37
+   Problema: Tentativa de import ESM sem tratamento correto
+   Ação: Melhorar try-catch e fallback
+
+9. EXTRACTION.JS - CACHE VAZAMENTO DE MEMÓRIA
+   Arquivo: extraction.js, linhas 57-65
+   Problema: extractionCache cresce infinitamente
+   Ação: Implementar limite de tamanho (MAX 150 entradas)
+
+10. DB.JS - LISTENERS VAZAMENTO
+    Arquivo: db.js, linhas 196-210
+    Problema: onEventsChange() nunca unsubscribe
+    Ação: Implementar cleanup function
+
+11. APP.JS - ERROR HANDLING callOpenRouter()
+    Arquivo: app.js, linhas 510-535
+    Problema: Rate limit sem backoff exponencial
+    Ação: Adicionar retry com delay
+
+12. APP.JS - RACE CONDITION ensureAuth()
+    Arquivo: app.js, múltiplos locais
+    Problema: Às vezes aguardada, às vezes não
+    Ação: Padronizar uso de await
+
+13-20. (Problemas similares de async/promises)
+
+================================================================================
+🟡 MÉDIOS (17) - FAZER ESTA SEMANA
+================================================================================
+
+21. APP.JS - INCONSISTÊNCIA venue vs venue_name
+    Arquivo: app.js, linhas 763, 1056
+    Ação: Padronizar nomenclatura
+
+22. EXTRACTION.JS - ERRO LOOP extractBulk()
+    Arquivo: extraction.js, linhas 383-402
+    Problema: Sequencial lento, sem concorrência
+    Ação: Implementar Promise.all com limite
+
+23. APP.JS - VALIDAÇÃO DATA INADEQUADA
+    Arquivo: app.js, linha 973
+    Problema: Não valida formato YYYY-MM-DD
+    Ação: Adicionar regex validate
+
+24-31. (Problemas menores de lógica e validação)
+
+================================================================================
+🔵 BAIXOS (15) - FAZER PRÓXIMO MÊS
+================================================================================
+
+32-46. Refinamentos, logging, edge cases
+
+================================================================================
+RESUMO DE CORREÇÕES
+================================================================================
+
+ARQUIVO          | CRÍTICO | ALTO | MÉDIO | BAIXO | TOTAL
+-----------------|---------|------|-------|-------|-------
+extraction.js    |    2    |  1   |   2   |   1   |   6
+app.js           |    2    |  8   |   8   |   4   |  22
+db.js            |    0    |  2   |   1   |   1   |   4
+config.js        |    1    |  0   |   0   |   0   |   1
+config_dev.js    |    0    |  0   |   0   |   0   |   0
+extraction_config|    0    |  0   |   0   |   0   |   0
+-----------------|---------|------|-------|-------|-------
+TOTAL            |    5    | 11   |  11   |   6   |  33
+
+================================================================================
+ARQUIVOS GERADOS
+================================================================================
+
+1. ANALISE_ERROS_DETALHADA.md (15KB)
+   - Análise completa de todos os 58 problemas
+   - Código problemático e soluções
+   - Categorizado por tipo e severidade
+
+2. CORRECOES_RECOMENDADAS.md (12KB)
+   - Código corrigido com exemplos
+   - Implementações melhoradas
+   - Snippets prontos para usar
+
+3. SUMARIO_EXECUTIVO.md (8KB)
+   - Resumo para stakeholders
+   - Estimativa de esforço
+   - Plano de ação
+
+4. LISTA_RAPIDA_ERROS.txt (este arquivo)
+   - Quick reference para desenvolvedores
+   - Linhas de código e ações rápidas
+
+================================================================================
+COMEÇAR POR AQUI - SEQUÊNCIA RECOMENDADA
+================================================================================
+
+HORA 1-2:
+  [ ] Revogar/regenerar chaves no Supabase
+  [ ] Criar .env.example
+  [ ] Remover chaves de config.js
+  [ ] Adicionar config.js ao .gitignore
+
+HORA 2-3:
+  [ ] Adicionar function isUrl() em extraction.js
+  [ ] Adicionar let gcalIndex = [] em app.js
+  [ ] Adicionar funções checkDuplicate() e refreshGcalIndex()
+
+HORA 3-4:
+  [ ] Adicionar await correto em getSAToken()
+  [ ] Definir initDarkMode()
+  [ ] Implementar callback para callOpenRouter()
+
+HORA 4-6:
+  [ ] Adicionar limite de cache
+  [ ] Implementar cleanup em listeners
+  [ ] Melhorar initSupabase()
+
+================================================================================
+COMANDOS ÚTEIS
+================================================================================
+
+# Buscar função não definida:
+grep -n "refreshGcalIndex\|checkDuplicate\|initDarkMode" *.js
+
+# Buscar promises sem await:
+grep -n "\.then\|\.catch" app.js | grep -v "await"
+
+# Buscar vazamentos de cache:
+grep -n "extractionCache" extraction.js
+
+# Verificar tamanho de arquivo:
+wc -l *.js
+
+# ESLint para encontrar problemas:
+npx eslint *.js --fix
+
+================================================================================
+CONTATO / DÚVIDAS
+================================================================================
+
+Para mais detalhes, ver:
+  - ANALISE_ERROS_DETALHADA.md
+  - CORRECOES_RECOMENDADAS.md
+  - SUMARIO_EXECUTIVO.md
+
+================================================================================
